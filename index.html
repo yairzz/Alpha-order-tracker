@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>מערכת מעקב הזמנות</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Babel Standalone to parse JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18';
+    import { createRoot } from 'https://esm.sh/react-dom@18/client';
+    import { initializeApp, getApps, getApp } from 'https://esm.sh/firebase@10.8.0/app';
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://esm.sh/firebase@10.8.0/auth';
+    import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc } from 'https://esm.sh/firebase@10.8.0/firestore';
+    import { 
+      Plus, Archive, Undo2, Edit2, ExternalLink, Search, X, CheckCircle2, 
+      ArrowUpDown, ArrowUp, ArrowDown, Copy, Check, MessageSquare, 
+      ClipboardList, PackageCheck, Clock, Layers, Sparkles, Truck, Download 
+    } from 'https://esm.sh/lucide-react@0.344.0';
+
+    const STATUS_OPTIONS = [
+      'ראשוני',
+      'נשלחה לשגיא',
+      'נשלחה למחלקת רכש',
+      'אושרה ע"י אלירן',
+      'הוזמנה',
+      'התקבלה במחלקת רכש',
+      'נמסרה',
+      'אומתה ונסגרה'
+    ];
+
+    const STATUS_COLORS = {
+      'ראשוני': 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
+      'נשלחה לשגיא': 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100',
+      'נשלחה למחלקת רכש': 'bg-orange-50 text-orange-700 border-orange-300 hover:bg-orange-100',
+      'אושרה ע"י אלירן': 'bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100',
+      'הוזמנה': 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100',
+      'התקבלה במחלקת רכש': 'bg-indigo-50 text-indigo-700 border-indigo-300 hover:bg-indigo-100',
+      'נמסרה': 'bg-teal-50 text-teal-700 border-teal-300 hover:bg-teal-100',
+      'אומתה ונסגרה': 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+    };
+
+    const firebaseConfig = typeof window.__firebase_config !== 'undefined' 
+      ? JSON.parse(window.__firebase_config) 
+      : null;
+    
+    const appId = 'company-order-tracker-persistent-v1';
+
+    let app = null;
+    let auth = null;
+    let db = null;
+
+    if (firebaseConfig) {
+      try {
+        app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+        auth = getAuth(app);
+        db = getFirestore(app);
+      } catch (err) {
+        console.warn("Firebase connection setup error:", err);
+      }
+    }
+
+    const INITIAL_MOCK_ORDERS = [
+      {
+        itemName: 'מחשב נייד Dell XPS 15',
+        orderNumber: 'PO-2024-001',
+        trackingNumber: '1Z9999999999999999',
+        quantity: 2,
+        project: 'שדרוג מעבדה',
+        url: 'https://www.dell.com',
+        status: 'אושרה ע"י אלירן',
+        notes: 'מפרט i7, 32GB RAM, זיכרון 1TB SSD.',
+        isArchived: false,
+        date: new Date().toISOString(),
+        createdAt: Date.now()
+      }
+    ];
+
+    function OrderTracker() {
+      const [orders, setOrders] = useState([]);
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [showArchive, setShowArchive] = useState(false);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [selectedProjectFilter, setSelectedProjectFilter] = useState('ALL');
+      const [sortConfig, setSortConfig] = useState({ key: 'createdAt', direction: 'desc' });
+      const [copiedId, setCopiedId] = useState(null);
+      const [selectedIds, setSelectedIds] = useState([]);
+      
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingOrder, setEditingOrder] = useState(null);
+      
+      const [notesModalOrder, setNotesModalOrder] = useState(null);
+      const [currentNotes, setCurrentNotes] = useState('');
+
+      const [trackingModalOrder, setTrackingModalOrder] = useState(null);
+      const [currentTrackingNumber, setCurrentTrackingNumber] = useState('');
+
+      const [formData, setFormData] = useState({
+        itemName: '',
+        orderNumber: '',
+        trackingNumber: '',
+        quantity: 1,
+        project: '',
+        url: '',
+        status: STATUS_OPTIONS[0],
+        notes: ''
+      });
+
+      useEffect(() => {
+        if (!auth) return;
+        const initAuth = async () => {
+          try {
+            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+              await signInWithCustomToken(auth, window.__initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (err) {
+            console.warn("Auth initialization error:", err);
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!db || !user) {
+          const stored = localStorage.getItem('company_orders_data');
+          if (stored) {
+            setOrders(JSON.parse(stored));
+          } else {
+            setOrders(INITIAL_MOCK_ORDERS);
+          }
+          setLoading(false);
+          return;
+        }
+
+        const ordersCol = collection(db, 'artifacts', appId, 'public', 'data', 'company_orders');
+        
+        const unsubscribe = onSnapshot(
+          ordersCol,
+          (snapshot) => {
+            if (snapshot.empty) {
+              INITIAL_MOCK_ORDERS.forEach(async (item) => {
+                await addDoc(ordersCol, item);
+              });
+            } else {
+              const loadedOrders = snapshot.docs.map(docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
+              }));
+              setOrders(loadedOrders);
+            }
+            setLoading(false);
+          },
+          (error) => {
+            console.warn("Firestore error:", error);
+            setLoading(false);
+          }
+        );
+
+        return () => unsubscribe();
+      }, [user]);
+
+      useEffect(() => {
+        if (orders.length > 0) {
+          localStorage.setItem('company_orders_data', JSON.stringify(orders));
+        }
+      }, [orders]);
+
+      const existingProjects = useMemo(() => {
+        const projectsSet = new Set();
+        orders.forEach(order => {
+          if (order.project && order.project.trim()) {
+            projectsSet.add(order.project.trim());
+          }
+        });
+        return Array.from(projectsSet);
+      }, [orders]);
+
+      const stats = useMemo(() => {
+        const active = orders.filter(o => !o.isArchived);
+        const archived = orders.filter(o => o.isArchived);
+        const completed = active.filter(o => o.status === 'אומתה ונסגרה').length;
+        const pending = active.length - completed;
+
+        return {
+          totalActive: active.length,
+          pending,
+          completed,
+          archivedCount: archived.length
+        };
+      }, [orders]);
+
+      const handleSort = (key) => {
+        setSortConfig(prev => {
+          if (prev.key === key) {
+            return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+          }
+          return { key, direction: 'asc' };
+        });
+      };
+
+      const handleOpenModal = (order = null) => {
+        if (order) {
+          setEditingOrder(order);
+          setFormData({
+            itemName: order.itemName || '',
+            orderNumber: order.orderNumber || '',
+            trackingNumber: order.trackingNumber || '',
+            quantity: order.quantity || 1,
+            project: order.project || '',
+            url: order.url || '',
+            status: order.status || STATUS_OPTIONS[0],
+            notes: order.notes || ''
+          });
+        } else {
+          setEditingOrder(null);
+          setFormData({
+            itemName: '',
+            orderNumber: '',
+            trackingNumber: '',
+            quantity: 1,
+            project: '',
+            url: '',
+            status: STATUS_OPTIONS[0],
+            notes: ''
+          });
+        }
+        setIsModalOpen(true);
+      };
+
+      const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setEditingOrder(null);
+      };
+
+      const handleSaveNotes = async () => {
+        if (!notesModalOrder) return;
+        const updatedNotes = currentNotes.trim();
+
+        if (db && user) {
+          try {
+            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', notesModalOrder.id);
+            await updateDoc(orderRef, { notes: updatedNotes });
+          } catch (err) {
+            setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: updatedNotes } : o));
+          }
+        } else {
+          setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: updatedNotes } : o));
+        }
+        setNotesModalOrder(null);
+      };
+
+      const handleSaveTrackingNumber = async () => {
+        if (!trackingModalOrder) return;
+        const updatedTracking = currentTrackingNumber.trim();
+
+        if (db && user) {
+          try {
+            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', trackingModalOrder.id);
+            await updateDoc(orderRef, { trackingNumber: updatedTracking });
+          } catch (err) {
+            setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: updatedTracking } : o));
+          }
+        } else {
+          setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: updatedTracking } : o));
+        }
+        setTrackingModalOrder(null);
+      };
+
+      const handleSaveOrder = async (e) => {
+        e.preventDefault();
+        if (!formData.itemName.trim()) return;
+
+        const payload = {
+          itemName: formData.itemName.trim(),
+          orderNumber: formData.orderNumber.trim(),
+          trackingNumber: formData.trackingNumber.trim(),
+          quantity: Number(formData.quantity) || 1,
+          project: formData.project.trim(),
+          url: formData.url.trim(),
+          status: formData.status,
+          notes: formData.notes.trim(),
+          isArchived: editingOrder ? editingOrder.isArchived : false,
+          date: editingOrder ? editingOrder.date : new Date().toISOString(),
+          createdAt: editingOrder ? (editingOrder.createdAt || Date.now()) : Date.now()
+        };
+
+        if (editingOrder) {
+          if (db && user) {
+            try {
+              const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', editingOrder.id);
+              await updateDoc(orderRef, payload);
+            } catch (err) {
+              setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
+            }
+          } else {
+            setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
+          }
+        } else {
+          if (db && user) {
+            try {
+              const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'company_orders');
+              await addDoc(ordersRef, payload);
+            } catch (err) {
+              const newOrder = { id: Date.now().toString(), ...payload };
+              setOrders(prev => [newOrder, ...prev]);
+            }
+          } else {
+            const newOrder = { id: Date.now().toString(), ...payload };
+            setOrders(prev => [newOrder, ...prev]);
+          }
+        }
+
+        handleCloseModal();
+      };
+
+      const handleStatusChange = async (orderId, newStatus) => {
+        if (db && user) {
+          try {
+            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', orderId);
+            await updateDoc(orderRef, { status: newStatus });
+          } catch (err) {
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+          }
+        } else {
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+        }
+      };
+
+      const toggleArchive = async (orderId, currentArchivedState) => {
+        const nextState = !currentArchivedState;
+        if (db && user) {
+          try {
+            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', orderId);
+            await updateDoc(orderRef, { isArchived: nextState });
+          } catch (err) {
+            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
+          }
+        } else {
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
+        }
+      };
+
+      const formatUrl = (url) => {
+        if (!url) return '';
+        let trimmed = url.trim();
+        if (!/^https?:\/\//i.test(trimmed)) {
+          return 'https://' + trimmed;
+        }
+        return trimmed;
+      };
+
+      const handleCopyLink = async (rawUrl, id) => {
+        if (!rawUrl) return;
+        const formattedUrl = formatUrl(rawUrl);
+
+        try {
+          await navigator.clipboard.writeText(formattedUrl);
+        } catch (err) {
+          const textarea = document.createElement('textarea');
+          textarea.value = formattedUrl;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      };
+
+      const toggleSelectOrder = (id) => {
+        setSelectedIds(prev => 
+          prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+        );
+      };
+
+      const toggleSelectAll = () => {
+        const displayedIds = displayedOrders.map(o => o.id);
+        const allSelected = displayedIds.length > 0 && displayedIds.every(id => selectedIds.includes(id));
+        if (allSelected) {
+          setSelectedIds(prev => prev.filter(id => !displayedIds.includes(id)));
+        } else {
+          setSelectedIds(prev => Array.from(new Set([...prev, ...displayedIds])));
+        }
+      };
+
+      const handleExportToExcel = () => {
+        let ordersToExport = selectedIds.length > 0
+          ? orders.filter(o => selectedIds.includes(o.id))
+          : displayedOrders;
+
+        if (ordersToExport.length === 0) return;
+
+        const headers = ['שם הפריט', 'מספר הזמנה', 'כמות (יחידות)', 'פרויקט', 'סטטוס', 'מספר מעקב', 'קישור להזמנה', 'הערות', 'תאריך הוספה', 'בארכיון'];
+
+        const escapeCsv = (val) => {
+          if (val === null || val === undefined) return '""';
+          const str = String(val).replace(/"/g, '""');
+          return `"${str}"`;
+        };
+
+        const csvRows = ordersToExport.map(o => [
+          escapeCsv(o.itemName || ''),
+          escapeCsv(o.orderNumber || ''),
+          escapeCsv(o.quantity || 1),
+          escapeCsv(o.project || ''),
+          escapeCsv(o.status || ''),
+          escapeCsv(o.trackingNumber || ''),
+          escapeCsv(o.url || ''),
+          escapeCsv(o.notes || ''),
+          escapeCsv(o.date ? new Date(o.date).toLocaleDateString('he-IL') : ''),
+          escapeCsv(o.isArchived ? 'כן' : 'לא')
+        ]);
+
+        const csvContent = '\uFEFF' + [headers.map(h => `"${h}"`).join(','), ...csvRows.map(r => r.join(','))].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        const fileName = selectedIds.length > 0 
+          ? `הזמנות_מסומנות_לרכש_${new Date().toISOString().slice(0, 10)}.csv`
+          : `דוח_הזמנות_${showArchive ? 'ארכיון' : 'פעילות'}_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      };
+
+      const displayedOrders = useMemo(() => {
+        return orders
+          .filter(order => Boolean(order.isArchived) === showArchive)
+          .filter(order => {
+            const matchSearch = 
+              (order.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+              (order.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (order.trackingNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (order.project || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (order.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+            const matchProject = selectedProjectFilter === 'ALL' || order.project === selectedProjectFilter;
+
+            return matchSearch && matchProject;
+          })
+          .sort((a, b) => {
+            if (sortConfig.key === 'createdAt') {
+              const timeA = a.createdAt || new Date(a.date).getTime() || 0;
+              const timeB = b.createdAt || new Date(b.date).getTime() || 0;
+              return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
+            }
+
+            if (sortConfig.key === 'quantity') {
+              const qtyA = Number(a.quantity) || 1;
+              const qtyB = Number(b.quantity) || 1;
+              return sortConfig.direction === 'asc' ? qtyA - qtyB : qtyB - qtyA;
+            }
+
+            if (sortConfig.key === 'status') {
+              const indexA = STATUS_OPTIONS.indexOf(a.status);
+              const indexB = STATUS_OPTIONS.indexOf(b.status);
+              return sortConfig.direction === 'asc' ? indexA - indexB : indexB - indexA;
+            }
+
+            const valA = (a[sortConfig.key] || '').toString().toLowerCase();
+            const valB = (b[sortConfig.key] || '').toString().toLowerCase();
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+      }, [orders, showArchive, searchTerm, selectedProjectFilter, sortConfig]);
+
+      const SortIcon = ({ columnKey }) => {
+        if (sortConfig.key !== columnKey) {
+          return <ArrowUpDown size={14} className="text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity" />;
+        }
+        return sortConfig.direction === 'asc' ? (
+          <ArrowUp size={14} className="text-blue-600 font-bold" />
+        ) : (
+          <ArrowDown size={14} className="text-blue-600 font-bold" />
+        );
+      };
+
+      if (loading) {
+        return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans" dir="rtl">
+            <div className="flex flex-col items-center gap-3 bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-slate-600 font-medium">טוען את נתוני ההזמנות...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">
+          {/* Header */}
+          <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-md shadow-blue-500/20">
+                    <ClipboardList size={26} />
+                  </div>
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                      מערכת מעקב הזמנות
+                    </h1>
+                    <p className="text-xs sm:text-sm text-slate-500">
+                      ניהול בזמן אמת של דרישות, אישורים וסטטוס רכש
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
+                  <button
+                    onClick={handleExportToExcel}
+                    className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                  >
+                    <Download size={18} />
+                    <span>
+                      {selectedIds.length > 0 
+                        ? `ייצא מסומנים (${selectedIds.length}) לאקסל` 
+                        : 'ייצא לאקסל'}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowArchive(!showArchive)}
+                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                      showArchive 
+                        ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' 
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Archive size={17} />
+                    <span>{showArchive ? 'חזור להזמנות פעילות' : 'ארכיון הזמנות'}</span>
+                    {stats.archivedCount > 0 && (
+                      <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-xs font-bold">
+                        {stats.archivedCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenModal()}
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md shadow-blue-600/20 transition-all active:scale-95"
+                  >
+                    <Plus size={18} />
+                    <span>הזמנה חדשה</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Dashboard */}
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">סה״כ פעילות</p>
+                  <p className="text-2xl font-bold text-slate-900">{stats.totalActive}</p>
+                </div>
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
+                  <Layers size={22} />
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">בתהליך עבודה</p>
+                  <p className="text-2xl font-bold text-amber-600">{stats.pending}</p>
+                </div>
+                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg">
+                  <Clock size={22} />
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">אוומתו ונסגרו</p>
+                  <p className="text-2xl font-bold text-emerald-600">{stats.completed}</p>
+                </div>
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <PackageCheck size={22} />
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1">באוגדן ארכיון</p>
+                  <p className="text-2xl font-bold text-slate-600">{stats.archivedCount}</p>
+                </div>
+                <div className="p-2.5 bg-slate-100 text-slate-600 rounded-lg">
+                  <Archive size={22} />
+                </div>
+              </div>
+            </div>
+
+            {/* Filter */}
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
+              <div className="relative w-full md:w-96">
+                <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="חפש לפי שם פריט, פרויקט או הערות..."
+                  className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500">סינון פרויקט:</span>
+                  <select
+                    value={selectedProjectFilter}
+                    onChange={(e) => setSelectedProjectFilter(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ALL">כל הפרויקטים</option>
+                    {existingProjects.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-right border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs font-bold uppercase tracking-wider">
+                      <th className="p-4 w-10 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={displayedOrders.length > 0 && displayedOrders.every(o => selectedIds.includes(o.id))}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('itemName')}>שם הפריט</th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('orderNumber')}>מספר הזמנה</th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('quantity')}>כמות</th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('project')}>פרויקט</th>
+                      <th className="p-4">קישור</th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('status')}>סטטוס</th>
+                      <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('createdAt')}>תאריך</th>
+                      <th className="p-4 text-center">פעולות</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {displayedOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan="9" className="p-12 text-center text-slate-400">לא נמצאו הזמנות מתאימות.</td>
+                      </tr>
+                    ) : (
+                      displayedOrders.map(order => (
+                        <tr key={order.id} className={`transition-colors ${selectedIds.includes(order.id) ? 'bg-blue-50/70' : 'hover:bg-slate-50'}`}>
+                          <td className="p-4 text-center">
+                            <input 
+                              type="checkbox"
+                              checked={selectedIds.includes(order.id)}
+                              onChange={() => toggleSelectOrder(order.id)}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-4 font-semibold text-slate-900">{order.itemName}</td>
+                          <td className="p-4">
+                            {order.orderNumber ? (
+                              <span className="font-mono text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded border border-slate-200">
+                                {order.orderNumber}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="p-4 font-bold">{order.quantity || 1} יח'</td>
+                          <td className="p-4">
+                            {order.project ? (
+                              <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold">
+                                {order.project}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="p-4">
+                            {order.url ? (
+                              <div className="flex items-center gap-1.5">
+                                <a 
+                                  href={formatUrl(order.url)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200 text-xs"
+                                >
+                                  <ExternalLink size={14} />
+                                  <span>פתח</span>
+                                </a>
+                                <button 
+                                  onClick={() => handleCopyLink(order.url, order.id)}
+                                  className="inline-flex items-center gap-1 text-slate-600 hover:bg-slate-100 px-2 py-1 rounded border border-slate-200 text-xs"
+                                >
+                                  {copiedId === order.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                                </button>
+                              </div>
+                            ) : '—'}
+                          </td>
+                          <td className="p-4">
+                            <select 
+                              value={order.status} 
+                              onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                              className={`border text-xs font-bold px-3 py-1.5 rounded-full ${STATUS_COLORS[order.status] || 'bg-slate-100'}`}
+                            >
+                              {STATUS_OPTIONS.map(statusOption => (
+                                <option key={statusOption} value={statusOption}>{statusOption}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="p-4 text-xs text-slate-500">
+                            {order.date ? new Date(order.date).toLocaleDateString('he-IL') : '—'}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center justify-center gap-1">
+                              <button onClick={() => setTrackingModalOrder(order)} className="p-1.5 text-slate-500 hover:text-indigo-600">
+                                <Truck size={16} />
+                              </button>
+                              <button onClick={() => setNotesModalOrder(order)} className="p-1.5 text-slate-500 hover:text-amber-600">
+                                <MessageSquare size={16} />
+                              </button>
+                              <button onClick={() => handleOpenModal(order)} className="p-1.5 text-slate-500 hover:text-blue-600">
+                                <Edit2 size={16} />
+                              </button>
+                              <button onClick={() => toggleArchive(order.id, order.isArchived)} className="p-1.5 text-slate-500 hover:text-amber-600">
+                                {order.isArchived ? <Undo2 size={16} /> : <Archive size={16} />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<OrderTracker />);
+  </script>
+</body>
+</html>
