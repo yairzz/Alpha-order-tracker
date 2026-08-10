@@ -5,26 +5,74 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>מערכת מעקב הזמנות</title>
   
-  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Babel Standalone to parse JSX -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans">
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
   <div id="root"></div>
 
-  <script type="text/babel" data-type="module">
-    import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18';
-    import { createRoot } from 'https://esm.sh/react-dom@18/client';
-    import { initializeApp, getApps, getApp } from 'https://esm.sh/firebase@10.8.0/app';
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://esm.sh/firebase@10.8.0/auth';
-    import { getFirestore, collection, onSnapshot, addDoc, updateDoc, doc } from 'https://esm.sh/firebase@10.8.0/firestore';
-    import { 
-      Plus, Archive, Undo2, Edit2, ExternalLink, Search, X, CheckCircle2, 
-      ArrowUpDown, ArrowUp, ArrowDown, Copy, Check, MessageSquare, 
-      ClipboardList, PackageCheck, Clock, Layers, Sparkles, Truck, Download 
-    } from 'https://esm.sh/lucide-react@0.344.0';
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+
+    const IconPlus = () => (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    );
+    const IconArchive = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+    );
+    const IconUndo = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+    );
+    const IconEdit = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+    );
+    const IconExternalLink = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+    );
+    const IconSearch = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    );
+    const IconX = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    );
+    const IconCheck = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    );
+    const IconArrowUpDown = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+    );
+    const IconArrowUp = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+    );
+    const IconArrowDown = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+    );
+    const IconCopy = () => (
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    );
+    const IconMessageSquare = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    );
+    const IconClipboardList = () => (
+      <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+    );
+    const IconPackageCheck = () => (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16l2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+    );
+    const IconClock = () => (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    );
+    const IconLayers = () => (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+    );
+    const IconTruck = () => (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    );
+    const IconDownload = () => (
+      <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    );
 
     const STATUS_OPTIONS = [
       'ראשוני',
@@ -48,28 +96,9 @@
       'אומתה ונסגרה': 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
     };
 
-    const firebaseConfig = typeof window.__firebase_config !== 'undefined' 
-      ? JSON.parse(window.__firebase_config) 
-      : null;
-    
-    const appId = 'company-order-tracker-persistent-v1';
-
-    let app = null;
-    let auth = null;
-    let db = null;
-
-    if (firebaseConfig) {
-      try {
-        app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-        auth = getAuth(app);
-        db = getFirestore(app);
-      } catch (err) {
-        console.warn("Firebase connection setup error:", err);
-      }
-    }
-
-    const INITIAL_MOCK_ORDERS = [
+    const INITIAL_ORDERS = [
       {
+        id: 'ord-1',
         itemName: 'מחשב נייד Dell XPS 15',
         orderNumber: 'PO-2024-001',
         trackingNumber: '1Z9999999999999999',
@@ -81,13 +110,25 @@
         isArchived: false,
         date: new Date().toISOString(),
         createdAt: Date.now()
+      },
+      {
+        id: 'ord-2',
+        itemName: 'בקר לוגי מתוכנת Siemens S7-1200',
+        orderNumber: 'PO-2024-002',
+        trackingNumber: '',
+        quantity: 5,
+        project: 'פרויקט אוטומציה',
+        url: 'https://www.siemens.com',
+        status: 'הוזמנה',
+        notes: 'ספק מתחייב לאספקה תוך 14 ימי עסקים.',
+        isArchived: false,
+        date: new Date(Date.now() - 86400000).toISOString(),
+        createdAt: Date.now() - 86400000
       }
     ];
 
     function OrderTracker() {
       const [orders, setOrders] = useState([]);
-      const [user, setUser] = useState(null);
-      const [loading, setLoading] = useState(true);
       const [showArchive, setShowArchive] = useState(false);
       const [searchTerm, setSearchTerm] = useState('');
       const [selectedProjectFilter, setSelectedProjectFilter] = useState('ALL');
@@ -116,61 +157,17 @@
       });
 
       useEffect(() => {
-        if (!auth) return;
-        const initAuth = async () => {
+        const stored = localStorage.getItem('company_orders_data');
+        if (stored) {
           try {
-            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-              await signInWithCustomToken(auth, window.__initial_auth_token);
-            } else {
-              await signInAnonymously(auth);
-            }
-          } catch (err) {
-            console.warn("Auth initialization error:", err);
-          }
-        };
-        initAuth();
-        const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
-        return () => unsubscribe();
-      }, []);
-
-      useEffect(() => {
-        if (!db || !user) {
-          const stored = localStorage.getItem('company_orders_data');
-          if (stored) {
             setOrders(JSON.parse(stored));
-          } else {
-            setOrders(INITIAL_MOCK_ORDERS);
+          } catch(e) {
+            setOrders(INITIAL_ORDERS);
           }
-          setLoading(false);
-          return;
+        } else {
+          setOrders(INITIAL_ORDERS);
         }
-
-        const ordersCol = collection(db, 'artifacts', appId, 'public', 'data', 'company_orders');
-        
-        const unsubscribe = onSnapshot(
-          ordersCol,
-          (snapshot) => {
-            if (snapshot.empty) {
-              INITIAL_MOCK_ORDERS.forEach(async (item) => {
-                await addDoc(ordersCol, item);
-              });
-            } else {
-              const loadedOrders = snapshot.docs.map(docSnap => ({
-                id: docSnap.id,
-                ...docSnap.data()
-              }));
-              setOrders(loadedOrders);
-            }
-            setLoading(false);
-          },
-          (error) => {
-            console.warn("Firestore error:", error);
-            setLoading(false);
-          }
-        );
-
-        return () => unsubscribe();
-      }, [user]);
+      }, []);
 
       useEffect(() => {
         if (orders.length > 0) {
@@ -179,13 +176,11 @@
       }, [orders]);
 
       const existingProjects = useMemo(() => {
-        const projectsSet = new Set();
-        orders.forEach(order => {
-          if (order.project && order.project.trim()) {
-            projectsSet.add(order.project.trim());
-          }
+        const setP = new Set();
+        orders.forEach(o => {
+          if (o.project && o.project.trim()) setP.add(o.project.trim());
         });
-        return Array.from(projectsSet);
+        return Array.from(setP);
       }, [orders]);
 
       const stats = useMemo(() => {
@@ -193,13 +188,7 @@
         const archived = orders.filter(o => o.isArchived);
         const completed = active.filter(o => o.status === 'אומתה ונסגרה').length;
         const pending = active.length - completed;
-
-        return {
-          totalActive: active.length,
-          pending,
-          completed,
-          archivedCount: archived.length
-        };
+        return { totalActive: active.length, pending, completed, archivedCount: archived.length };
       }, [orders]);
 
       const handleSort = (key) => {
@@ -240,46 +229,7 @@
         setIsModalOpen(true);
       };
 
-      const handleCloseModal = () => {
-        setIsModalOpen(false);
-        setEditingOrder(null);
-      };
-
-      const handleSaveNotes = async () => {
-        if (!notesModalOrder) return;
-        const updatedNotes = currentNotes.trim();
-
-        if (db && user) {
-          try {
-            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', notesModalOrder.id);
-            await updateDoc(orderRef, { notes: updatedNotes });
-          } catch (err) {
-            setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: updatedNotes } : o));
-          }
-        } else {
-          setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: updatedNotes } : o));
-        }
-        setNotesModalOrder(null);
-      };
-
-      const handleSaveTrackingNumber = async () => {
-        if (!trackingModalOrder) return;
-        const updatedTracking = currentTrackingNumber.trim();
-
-        if (db && user) {
-          try {
-            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', trackingModalOrder.id);
-            await updateDoc(orderRef, { trackingNumber: updatedTracking });
-          } catch (err) {
-            setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: updatedTracking } : o));
-          }
-        } else {
-          setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: updatedTracking } : o));
-        }
-        setTrackingModalOrder(null);
-      };
-
-      const handleSaveOrder = async (e) => {
+      const handleSaveOrder = (e) => {
         e.preventDefault();
         if (!formData.itemName.trim()) return;
 
@@ -298,277 +248,161 @@
         };
 
         if (editingOrder) {
-          if (db && user) {
-            try {
-              const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', editingOrder.id);
-              await updateDoc(orderRef, payload);
-            } catch (err) {
-              setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
-            }
-          } else {
-            setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
-          }
+          setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
         } else {
-          if (db && user) {
-            try {
-              const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'company_orders');
-              await addDoc(ordersRef, payload);
-            } catch (err) {
-              const newOrder = { id: Date.now().toString(), ...payload };
-              setOrders(prev => [newOrder, ...prev]);
-            }
-          } else {
-            const newOrder = { id: Date.now().toString(), ...payload };
-            setOrders(prev => [newOrder, ...prev]);
-          }
+          const newOrder = { id: 'ord-' + Date.now(), ...payload };
+          setOrders(prev => [newOrder, ...prev]);
         }
-
-        handleCloseModal();
+        setIsModalOpen(false);
       };
 
-      const handleStatusChange = async (orderId, newStatus) => {
-        if (db && user) {
-          try {
-            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', orderId);
-            await updateDoc(orderRef, { status: newStatus });
-          } catch (err) {
-            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-          }
-        } else {
-          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-        }
+      const handleStatusChange = (orderId, newStatus) => {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       };
 
-      const toggleArchive = async (orderId, currentArchivedState) => {
-        const nextState = !currentArchivedState;
-        if (db && user) {
-          try {
-            const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'company_orders', orderId);
-            await updateDoc(orderRef, { isArchived: nextState });
-          } catch (err) {
-            setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
-          }
-        } else {
-          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
-        }
+      const toggleArchive = (orderId, currentArchivedState) => {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: !currentArchivedState } : o));
+      };
+
+      const handleSaveNotes = () => {
+        if (!notesModalOrder) return;
+        setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: currentNotes.trim() } : o));
+        setNotesModalOrder(null);
+      };
+
+      const handleSaveTracking = () => {
+        if (!trackingModalOrder) return;
+        setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: currentTrackingNumber.trim() } : o));
+        setTrackingModalOrder(null);
       };
 
       const formatUrl = (url) => {
         if (!url) return '';
         let trimmed = url.trim();
-        if (!/^https?:\/\//i.test(trimmed)) {
-          return 'https://' + trimmed;
-        }
-        return trimmed;
+        return /^https?:\/\//i.test(trimmed) ? trimmed : 'https://' + trimmed;
       };
 
-      const handleCopyLink = async (rawUrl, id) => {
+      const handleCopyLink = (rawUrl, id) => {
         if (!rawUrl) return;
-        const formattedUrl = formatUrl(rawUrl);
-
-        try {
-          await navigator.clipboard.writeText(formattedUrl);
-        } catch (err) {
-          const textarea = document.createElement('textarea');
-          textarea.value = formattedUrl;
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
-        }
-
+        const formatted = formatUrl(rawUrl);
+        navigator.clipboard.writeText(formatted).catch(() => {});
         setCopiedId(id);
         setTimeout(() => setCopiedId(null), 2000);
       };
 
       const toggleSelectOrder = (id) => {
-        setSelectedIds(prev => 
-          prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-        );
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
       };
 
       const toggleSelectAll = () => {
-        const displayedIds = displayedOrders.map(o => o.id);
-        const allSelected = displayedIds.length > 0 && displayedIds.every(id => selectedIds.includes(id));
-        if (allSelected) {
-          setSelectedIds(prev => prev.filter(id => !displayedIds.includes(id)));
-        } else {
-          setSelectedIds(prev => Array.from(new Set([...prev, ...displayedIds])));
-        }
+        const displayed = displayedOrders.map(o => o.id);
+        const allSelected = displayed.length > 0 && displayed.every(id => selectedIds.includes(id));
+        setSelectedIds(allSelected ? prev => prev.filter(id => !displayed.includes(id)) : prev => Array.from(new Set([...prev, ...displayed])));
       };
 
-      const handleExportToExcel = () => {
-        let ordersToExport = selectedIds.length > 0
-          ? orders.filter(o => selectedIds.includes(o.id))
-          : displayedOrders;
+      const handleExportExcel = () => {
+        const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
+        if (toExport.length === 0) return;
 
-        if (ordersToExport.length === 0) return;
-
-        const headers = ['שם הפריט', 'מספר הזמנה', 'כמות (יחידות)', 'פרויקט', 'סטטוס', 'מספר מעקב', 'קישור להזמנה', 'הערות', 'תאריך הוספה', 'בארכיון'];
-
-        const escapeCsv = (val) => {
-          if (val === null || val === undefined) return '""';
-          const str = String(val).replace(/"/g, '""');
-          return `"${str}"`;
-        };
-
-        const csvRows = ordersToExport.map(o => [
-          escapeCsv(o.itemName || ''),
-          escapeCsv(o.orderNumber || ''),
-          escapeCsv(o.quantity || 1),
-          escapeCsv(o.project || ''),
-          escapeCsv(o.status || ''),
-          escapeCsv(o.trackingNumber || ''),
-          escapeCsv(o.url || ''),
-          escapeCsv(o.notes || ''),
-          escapeCsv(o.date ? new Date(o.date).toLocaleDateString('he-IL') : ''),
-          escapeCsv(o.isArchived ? 'כן' : 'לא')
+        const headers = ['שם הפריט', 'מספר הזמנה', 'כמות', 'פרויקט', 'סטטוס', 'מספר מעקב', 'קישור', 'הערות', 'תאריך'];
+        const rows = toExport.map(o => [
+          `"${(o.itemName || '').replace(/"/g, '""')}"`,
+          `"${(o.orderNumber || '').replace(/"/g, '""')}"`,
+          `"${o.quantity || 1}"`,
+          `"${(o.project || '').replace(/"/g, '""')}"`,
+          `"${(o.status || '').replace(/"/g, '""')}"`,
+          `"${(o.trackingNumber || '').replace(/"/g, '""')}"`,
+          `"${(o.url || '').replace(/"/g, '""')}"`,
+          `"${(o.notes || '').replace(/"/g, '""')}"`,
+          `"${o.date ? new Date(o.date).toLocaleDateString('he-IL') : ''}"`
         ]);
 
-        const csvContent = '\uFEFF' + [headers.map(h => `"${h}"`).join(','), ...csvRows.map(r => r.join(','))].join('\n');
-
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.setAttribute('href', url);
-        const fileName = selectedIds.length > 0 
-          ? `הזמנות_מסומנות_לרכש_${new Date().toISOString().slice(0, 10)}.csv`
-          : `דוח_הזמנות_${showArchive ? 'ארכיון' : 'פעילות'}_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.setAttribute('download', fileName);
-        document.body.appendChild(link);
+        link.href = url;
+        link.download = `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
-        document.body.removeChild(link);
         URL.revokeObjectURL(url);
       };
 
       const displayedOrders = useMemo(() => {
         return orders
-          .filter(order => Boolean(order.isArchived) === showArchive)
-          .filter(order => {
+          .filter(o => Boolean(o.isArchived) === showArchive)
+          .filter(o => {
             const matchSearch = 
-              (order.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-              (order.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-              (order.trackingNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-              (order.project || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-              (order.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
-
-            const matchProject = selectedProjectFilter === 'ALL' || order.project === selectedProjectFilter;
-
+              (o.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+              (o.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (o.project || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (o.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
+            const matchProject = selectedProjectFilter === 'ALL' || o.project === selectedProjectFilter;
             return matchSearch && matchProject;
           })
           .sort((a, b) => {
             if (sortConfig.key === 'createdAt') {
-              const timeA = a.createdAt || new Date(a.date).getTime() || 0;
-              const timeB = b.createdAt || new Date(b.date).getTime() || 0;
+              const timeA = a.createdAt || 0;
+              const timeB = b.createdAt || 0;
               return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
             }
-
             if (sortConfig.key === 'quantity') {
-              const qtyA = Number(a.quantity) || 1;
-              const qtyB = Number(b.quantity) || 1;
-              return sortConfig.direction === 'asc' ? qtyA - qtyB : qtyB - qtyA;
+              return sortConfig.direction === 'asc' ? (a.quantity || 1) - (b.quantity || 1) : (b.quantity || 1) - (a.quantity || 1);
             }
-
-            if (sortConfig.key === 'status') {
-              const indexA = STATUS_OPTIONS.indexOf(a.status);
-              const indexB = STATUS_OPTIONS.indexOf(b.status);
-              return sortConfig.direction === 'asc' ? indexA - indexB : indexB - indexA;
-            }
-
             const valA = (a[sortConfig.key] || '').toString().toLowerCase();
             const valB = (b[sortConfig.key] || '').toString().toLowerCase();
-
-            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-            return 0;
+            return sortConfig.direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
           });
       }, [orders, showArchive, searchTerm, selectedProjectFilter, sortConfig]);
 
-      const SortIcon = ({ columnKey }) => {
-        if (sortConfig.key !== columnKey) {
-          return <ArrowUpDown size={14} className="text-slate-400 opacity-60 group-hover:opacity-100 transition-opacity" />;
-        }
-        return sortConfig.direction === 'asc' ? (
-          <ArrowUp size={14} className="text-blue-600 font-bold" />
-        ) : (
-          <ArrowDown size={14} className="text-blue-600 font-bold" />
-        );
-      };
-
-      if (loading) {
-        return (
-          <div className="min-h-screen bg-slate-50 flex items-center justify-center font-sans" dir="rtl">
-            <div className="flex flex-col items-center gap-3 bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
-              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-slate-600 font-medium">טוען את נתוני ההזמנות...</p>
-            </div>
-          </div>
-        );
-      }
-
       return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-12" dir="rtl">
           {/* Header */}
           <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-md shadow-blue-500/20">
-                    <ClipboardList size={26} />
-                  </div>
-                  <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                      מערכת מעקב הזמנות
-                    </h1>
-                    <p className="text-xs sm:text-sm text-slate-500">
-                      ניהול בזמן אמת של דרישות, אישורים וסטטוס רכש
-                    </p>
-                  </div>
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-md shadow-blue-500/20">
+                  <IconClipboardList />
                 </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
-                  <button
-                    onClick={handleExportToExcel}
-                    className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md shadow-emerald-600/20 transition-all active:scale-95"
-                  >
-                    <Download size={18} />
-                    <span>
-                      {selectedIds.length > 0 
-                        ? `ייצא מסומנים (${selectedIds.length}) לאקסל` 
-                        : 'ייצא לאקסל'}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowArchive(!showArchive)}
-                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${
-                      showArchive 
-                        ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' 
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Archive size={17} />
-                    <span>{showArchive ? 'חזור להזמנות פעילות' : 'ארכיון הזמנות'}</span>
-                    {stats.archivedCount > 0 && (
-                      <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-xs font-bold">
-                        {stats.archivedCount}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => handleOpenModal()}
-                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md shadow-blue-600/20 transition-all active:scale-95"
-                  >
-                    <Plus size={18} />
-                    <span>הזמנה חדשה</span>
-                  </button>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-bold text-slate-900">מערכת מעקב הזמנות</h1>
+                  <p className="text-xs sm:text-sm text-slate-500">ניהול דרישות, אישורים וסטטוס רכש</p>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap justify-end">
+                <button
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95"
+                >
+                  <IconDownload />
+                  <span>{selectedIds.length > 0 ? `ייצא מסומנים (${selectedIds.length})` : 'ייצא לאקסל'}</span>
+                </button>
+
+                <button
+                  onClick={() => setShowArchive(!showArchive)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                    showArchive ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <IconArchive />
+                  <span>{showArchive ? 'חזור להזמנות פעילות' : 'ארכיון הזמנות'}</span>
+                  {stats.archivedCount > 0 && (
+                    <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-xs font-bold">{stats.archivedCount}</span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => handleOpenModal()}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95"
+                >
+                  <IconPlus />
+                  <span>הזמנה חדשה</span>
+                </button>
               </div>
             </div>
           </header>
 
-          {/* Main Dashboard */}
+          {}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
@@ -576,9 +410,7 @@
                   <p className="text-xs font-medium text-slate-500 mb-1">סה״כ פעילות</p>
                   <p className="text-2xl font-bold text-slate-900">{stats.totalActive}</p>
                 </div>
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
-                  <Layers size={22} />
-                </div>
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg"><IconLayers /></div>
               </div>
 
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
@@ -586,19 +418,15 @@
                   <p className="text-xs font-medium text-slate-500 mb-1">בתהליך עבודה</p>
                   <p className="text-2xl font-bold text-amber-600">{stats.pending}</p>
                 </div>
-                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg">
-                  <Clock size={22} />
-                </div>
+                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg"><IconClock /></div>
               </div>
 
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-slate-500 mb-1">אוומתו ונסגרו</p>
+                  <p className="text-xs font-medium text-slate-500 mb-1">אומתו ונסגרו</p>
                   <p className="text-2xl font-bold text-emerald-600">{stats.completed}</p>
                 </div>
-                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
-                  <PackageCheck size={22} />
-                </div>
+                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg"><IconPackageCheck /></div>
               </div>
 
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
@@ -606,16 +434,14 @@
                   <p className="text-xs font-medium text-slate-500 mb-1">באוגדן ארכיון</p>
                   <p className="text-2xl font-bold text-slate-600">{stats.archivedCount}</p>
                 </div>
-                <div className="p-2.5 bg-slate-100 text-slate-600 rounded-lg">
-                  <Archive size={22} />
-                </div>
+                <div className="p-2.5 bg-slate-100 text-slate-600 rounded-lg"><IconArchive /></div>
               </div>
             </div>
 
-            {/* Filter */}
+            {/* Filter Bar */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
               <div className="relative w-full md:w-96">
-                <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400"><IconSearch /></span>
                 <input 
                   type="text"
                   value={searchTerm}
@@ -625,29 +451,25 @@
                 />
                 {searchTerm && (
                   <button onClick={() => setSearchTerm('')} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    <X size={16} />
+                    <IconX />
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500">סינון פרויקט:</span>
-                  <select
-                    value={selectedProjectFilter}
-                    onChange={(e) => setSelectedProjectFilter(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ALL">כל הפרויקטים</option>
-                    {existingProjects.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                <span className="text-xs font-semibold text-slate-500">סינון פרויקט:</span>
+                <select
+                  value={selectedProjectFilter}
+                  onChange={(e) => setSelectedProjectFilter(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="ALL">כל הפרויקטים</option>
+                  {existingProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
             </div>
 
-            {/* Table */}
+            {}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-right border-collapse">
@@ -658,7 +480,7 @@
                           type="checkbox"
                           checked={displayedOrders.length > 0 && displayedOrders.every(o => selectedIds.includes(o.id))}
                           onChange={toggleSelectAll}
-                          className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                          className="w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                         />
                       </th>
                       <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('itemName')}>שם הפריט</th>
@@ -684,7 +506,7 @@
                               type="checkbox"
                               checked={selectedIds.includes(order.id)}
                               onChange={() => toggleSelectOrder(order.id)}
-                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                             />
                           </td>
                           <td className="p-4 font-semibold text-slate-900">{order.itemName}</td>
@@ -712,14 +534,14 @@
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200 text-xs"
                                 >
-                                  <ExternalLink size={14} />
+                                  <IconExternalLink />
                                   <span>פתח</span>
                                 </a>
                                 <button 
                                   onClick={() => handleCopyLink(order.url, order.id)}
                                   className="inline-flex items-center gap-1 text-slate-600 hover:bg-slate-100 px-2 py-1 rounded border border-slate-200 text-xs"
                                 >
-                                  {copiedId === order.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                                  {copiedId === order.id ? <span className="text-emerald-600 font-bold">הועתק!</span> : <IconCopy />}
                                 </button>
                               </div>
                             ) : '—'}
@@ -728,29 +550,43 @@
                             <select 
                               value={order.status} 
                               onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                              className={`border text-xs font-bold px-3 py-1.5 rounded-full ${STATUS_COLORS[order.status] || 'bg-slate-100'}`}
+                              className={`border text-xs font-bold px-3 py-1.5 rounded-full cursor-pointer ${STATUS_COLORS[order.status] || 'bg-slate-100'}`}
                             >
-                              {STATUS_OPTIONS.map(statusOption => (
-                                <option key={statusOption} value={statusOption}>{statusOption}</option>
-                              ))}
+                              {STATUS_OPTIONS.map(st => <option key={st} value={st}>{st}</option>)}
                             </select>
                           </td>
-                          <td className="p-4 text-xs text-slate-500">
+                          <td className="p-4 text-xs text-slate-500 whitespace-nowrap">
                             {order.date ? new Date(order.date).toLocaleDateString('he-IL') : '—'}
                           </td>
                           <td className="p-4">
                             <div className="flex items-center justify-center gap-1">
-                              <button onClick={() => setTrackingModalOrder(order)} className="p-1.5 text-slate-500 hover:text-indigo-600">
-                                <Truck size={16} />
+                              <button 
+                                onClick={() => { setTrackingModalOrder(order); setCurrentTrackingNumber(order.trackingNumber || ''); }} 
+                                className={`p-1.5 rounded hover:bg-indigo-50 ${order.trackingNumber ? 'text-indigo-600' : 'text-slate-400'}`}
+                                title="מספר מעקב"
+                              >
+                                <IconTruck />
                               </button>
-                              <button onClick={() => setNotesModalOrder(order)} className="p-1.5 text-slate-500 hover:text-amber-600">
-                                <MessageSquare size={16} />
+                              <button 
+                                onClick={() => { setNotesModalOrder(order); setCurrentNotes(order.notes || ''); }} 
+                                className={`p-1.5 rounded hover:bg-amber-50 ${order.notes ? 'text-amber-600' : 'text-slate-400'}`}
+                                title="הערות"
+                              >
+                                <IconMessageSquare />
                               </button>
-                              <button onClick={() => handleOpenModal(order)} className="p-1.5 text-slate-500 hover:text-blue-600">
-                                <Edit2 size={16} />
+                              <button 
+                                onClick={() => handleOpenModal(order)} 
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                title="ערוך"
+                              >
+                                <IconEdit />
                               </button>
-                              <button onClick={() => toggleArchive(order.id, order.isArchived)} className="p-1.5 text-slate-500 hover:text-amber-600">
-                                {order.isArchived ? <Undo2 size={16} /> : <Archive size={16} />}
+                              <button 
+                                onClick={() => toggleArchive(order.id, order.isArchived)} 
+                                className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded"
+                                title={order.isArchived ? 'שחזר' : 'העבר לארכיון'}
+                              >
+                                {order.isArchived ? <IconUndo /> : <IconArchive />}
                               </button>
                             </div>
                           </td>
@@ -762,11 +598,138 @@
               </div>
             </div>
           </main>
+
+          {}
+          {/* Add / Edit Modal */}
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <h3 className="text-lg font-bold text-slate-900">{editingOrder ? 'עריכת הזמנה' : 'הוספת הזמנה חדשה'}</h3>
+                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><IconX /></button>
+                </div>
+                <form onSubmit={handleSaveOrder} className="p-6 flex flex-col gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">שם הפריט *</label>
+                    <input 
+                      type="text" required value={formData.itemName} 
+                      onChange={e => setFormData({...formData, itemName: e.target.value})}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">מספר הזמנה</label>
+                      <input 
+                        type="text" value={formData.orderNumber} 
+                        onChange={e => setFormData({...formData, orderNumber: e.target.value})}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">כמות *</label>
+                      <input 
+                        type="number" min="1" required value={formData.quantity} 
+                        onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 1})}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">פרויקט</label>
+                      <input 
+                        type="text" list="proj-list" value={formData.project} 
+                        onChange={e => setFormData({...formData, project: e.target.value})}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <datalist id="proj-list">
+                        {existingProjects.map(p => <option key={p} value={p} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">סטטוס</label>
+                      <select 
+                        value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {STATUS_OPTIONS.map(st => <option key={st} value={st}>{st}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">קישור להזמנה</label>
+                    <input 
+                      type="url" value={formData.url} onChange={e => setFormData({...formData, url: e.target.value})}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500" dir="ltr"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">הערות</label>
+                    <textarea 
+                      rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})}
+                      className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+                  <div className="flex gap-3 mt-2">
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700">שמור הזמנה</button>
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">ביטול</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Notes Quick Modal */}
+          {notesModalOrder && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <h3 className="text-base font-bold text-slate-800">הערות: {notesModalOrder.itemName}</h3>
+                  <button onClick={() => setNotesModalOrder(null)} className="text-slate-400 hover:text-slate-600"><IconX /></button>
+                </div>
+                <div className="p-6 flex flex-col gap-4">
+                  <textarea 
+                    rows="4" value={currentNotes} onChange={e => setCurrentNotes(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    placeholder="הוסף הערה..."
+                  />
+                  <div className="flex gap-3">
+                    <button onClick={handleSaveNotes} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700">שמור הערה</button>
+                    <button onClick={() => setNotesModalOrder(null)} className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">סגור</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tracking Quick Modal */}
+          {trackingModalOrder && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <h3 className="text-base font-bold text-slate-800">מספר מעקב: {trackingModalOrder.itemName}</h3>
+                  <button onClick={() => setTrackingModalOrder(null)} className="text-slate-400 hover:text-slate-600"><IconX /></button>
+                </div>
+                <div className="p-6 flex flex-col gap-4">
+                  <input 
+                    type="text" value={currentTrackingNumber} onChange={e => setCurrentTrackingNumber(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500" dir="ltr"
+                    placeholder="הכנס מספר מעקב..."
+                  />
+                  <div className="flex gap-3">
+                    <button onClick={handleSaveTracking} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700">שמור מספר מעקב</button>
+                    <button onClick={() => setTrackingModalOrder(null)} className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">ביטול</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
 
-    const root = createRoot(document.getElementById('root'));
+    const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<OrderTracker />);
   </script>
 </body>
