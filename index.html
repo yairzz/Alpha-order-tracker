@@ -3,12 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>מערכת מעקב הזמנות</title>
+  <title>מערכת מעקב הזמנות - סנכרון צוות</title>
   
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Firebase Compat SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased">
   <div id="root"></div>
@@ -16,63 +23,37 @@
   <script type="text/babel">
     const { useState, useMemo, useEffect } = React;
 
-    const IconPlus = () => (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-    );
-    const IconArchive = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-    );
-    const IconUndo = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
-    );
-    const IconEdit = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-    );
-    const IconExternalLink = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-    );
-    const IconSearch = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    );
-    const IconX = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    );
-    const IconCheck = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-    );
-    const IconArrowUpDown = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
-    );
-    const IconArrowUp = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
-    );
-    const IconArrowDown = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-    );
-    const IconCopy = () => (
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-    );
-    const IconMessageSquare = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    );
-    const IconClipboardList = () => (
-      <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
-    );
-    const IconPackageCheck = () => (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16l2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
-    );
-    const IconClock = () => (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-    );
-    const IconLayers = () => (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-    );
-    const IconTruck = () => (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-    );
-    const IconDownload = () => (
-      <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    );
+    // =========================================================================
+    // 🔑 הגדרות FIREBASE - הדבק כאן את הפרטים מפרויקט Firebase שלך
+    // (אם השדות ריקים, המערכת תפעל במצב מקומי ללא סנכרון בין משתמשים)
+    // =========================================================================
+    const DEFAULT_FIREBASE_CONFIG = {
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
+
+    // Icons
+    const IconPlus = () => <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    const IconArchive = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>;
+    const IconUndo = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>;
+    const IconEdit = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>;
+    const IconExternalLink = () => <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>;
+    const IconSearch = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
+    const IconX = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+    const IconCopy = () => <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>;
+    const IconMessageSquare = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+    const IconClipboardList = () => <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>;
+    const IconPackageCheck = () => <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16l2 2 4-4"/><path d="M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>;
+    const IconClock = () => <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
+    const IconLayers = () => <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>;
+    const IconTruck = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>;
+    const IconDownload = () => <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
+    const IconCloud = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19x-9 0a7 7 0 1 1 3.22-13.041 5 5 0 0 1 9.13 4.253A4.5 4.5 0 0 1 17.5 19z"/></svg>;
+    const IconCloudOff = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0-4 7h.5A5 5 0 0 0 6 17h8"/></svg>;
 
     const STATUS_OPTIONS = [
       'ראשוני',
@@ -96,7 +77,7 @@
       'אומתה ונסגרה': 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
     };
 
-    const INITIAL_ORDERS = [
+    const MOCK_ORDERS = [
       {
         id: 'ord-1',
         itemName: 'מחשב נייד Dell XPS 15',
@@ -136,6 +117,12 @@
       const [copiedId, setCopiedId] = useState(null);
       const [selectedIds, setSelectedIds] = useState([]);
       
+      // Cloud status
+      const [dbInstance, setDbInstance] = useState(null);
+      const [isCloudActive, setIsCloudActive] = useState(false);
+      const [firebaseConfigModal, setFirebaseConfigModal] = useState(false);
+      const [configInput, setConfigInput] = useState('');
+
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingOrder, setEditingOrder] = useState(null);
       
@@ -156,24 +143,76 @@
         notes: ''
       });
 
+      // Initialize Firebase or LocalStorage
       useEffect(() => {
-        const stored = localStorage.getItem('company_orders_data');
-        if (stored) {
+        let activeConfig = DEFAULT_FIREBASE_CONFIG;
+        const savedConfig = localStorage.getItem('user_firebase_config');
+        
+        if (savedConfig) {
+          try { activeConfig = JSON.parse(savedConfig); } catch(e) {}
+        }
+
+        const hasValidConfig = activeConfig && activeConfig.projectId && activeConfig.projectId.trim() !== '';
+
+        if (hasValidConfig) {
           try {
-            setOrders(JSON.parse(stored));
-          } catch(e) {
-            setOrders(INITIAL_ORDERS);
+            if (!firebase.apps.length) {
+              firebase.initializeApp(activeConfig);
+            }
+            const db = firebase.firestore();
+            setDbInstance(db);
+            setIsCloudActive(true);
+
+            // Listen to real-time changes
+            const unsubscribe = db.collection('orders').onSnapshot(snapshot => {
+              const cloudOrders = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+              }));
+              setOrders(cloudOrders);
+            }, (err) => {
+              console.error("Firestore error:", err);
+              setIsCloudActive(false);
+              loadLocalFallback();
+            });
+
+            return () => unsubscribe();
+          } catch (e) {
+            console.error("Firebase init failed:", e);
+            setIsCloudActive(false);
+            loadLocalFallback();
           }
         } else {
-          setOrders(INITIAL_ORDERS);
+          setIsCloudActive(false);
+          loadLocalFallback();
         }
       }, []);
 
+      const loadLocalFallback = () => {
+        const stored = localStorage.getItem('company_orders_data');
+        if (stored) {
+          try { setOrders(JSON.parse(stored)); } catch(e) { setOrders(MOCK_ORDERS); }
+        } else {
+          setOrders(MOCK_ORDERS);
+        }
+      };
+
+      // Sync local storage as fallback
       useEffect(() => {
-        if (orders.length > 0) {
+        if (!isCloudActive && orders.length > 0) {
           localStorage.setItem('company_orders_data', JSON.stringify(orders));
         }
-      }, [orders]);
+      }, [orders, isCloudActive]);
+
+      const handleSaveCloudConfig = () => {
+        try {
+          const parsed = JSON.parse(configInput);
+          localStorage.setItem('user_firebase_config', JSON.stringify(parsed));
+          window.location.reload();
+        } catch(e) {
+          alert('הקוד שאתה מחזיק אינו JSON תקין. אנא העתק את ה-firebaseConfig במלואו.');
+        }
+      };
 
       const existingProjects = useMemo(() => {
         const setP = new Set();
@@ -229,7 +268,7 @@
         setIsModalOpen(true);
       };
 
-      const handleSaveOrder = (e) => {
+      const handleSaveOrder = async (e) => {
         e.preventDefault();
         if (!formData.itemName.trim()) return;
 
@@ -242,37 +281,67 @@
           url: formData.url.trim(),
           status: formData.status,
           notes: formData.notes.trim(),
-          isArchived: editingOrder ? editingOrder.isArchived : false,
+          isArchived: editingOrder ? Boolean(editingOrder.isArchived) : false,
           date: editingOrder ? editingOrder.date : new Date().toISOString(),
           createdAt: editingOrder ? (editingOrder.createdAt || Date.now()) : Date.now()
         };
 
-        if (editingOrder) {
-          setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
+        if (isCloudActive && dbInstance) {
+          if (editingOrder) {
+            await dbInstance.collection('orders').doc(editingOrder.id).update(payload);
+          } else {
+            await dbInstance.collection('orders').add(payload);
+          }
         } else {
-          const newOrder = { id: 'ord-' + Date.now(), ...payload };
-          setOrders(prev => [newOrder, ...prev]);
+          if (editingOrder) {
+            setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
+          } else {
+            const newOrder = { id: 'ord-' + Date.now(), ...payload };
+            setOrders(prev => [newOrder, ...prev]);
+          }
         }
+
         setIsModalOpen(false);
       };
 
-      const handleStatusChange = (orderId, newStatus) => {
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      const handleStatusChange = async (orderId, newStatus) => {
+        if (isCloudActive && dbInstance) {
+          await dbInstance.collection('orders').doc(orderId).update({ status: newStatus });
+        } else {
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+        }
       };
 
-      const toggleArchive = (orderId, currentArchivedState) => {
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: !currentArchivedState } : o));
+      const toggleArchive = async (orderId, currentArchivedState) => {
+        const nextState = !currentArchivedState;
+        if (isCloudActive && dbInstance) {
+          await dbInstance.collection('orders').doc(orderId).update({ isArchived: nextState });
+        } else {
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
+        }
       };
 
-      const handleSaveNotes = () => {
+      const handleSaveNotes = async () => {
         if (!notesModalOrder) return;
-        setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: currentNotes.trim() } : o));
+        const updatedNotes = currentNotes.trim();
+
+        if (isCloudActive && dbInstance) {
+          await dbInstance.collection('orders').doc(notesModalOrder.id).update({ notes: updatedNotes });
+        } else {
+          setOrders(prev => prev.map(o => o.id === notesModalOrder.id ? { ...o, notes: updatedNotes } : o));
+        }
         setNotesModalOrder(null);
       };
 
-      const handleSaveTracking = () => {
+      const handleSaveTracking = async () => {
         if (!trackingModalOrder) return;
-        setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: currentTrackingNumber.trim() } : o));
+        const updatedTracking = currentTrackingNumber.trim();
+
+        if (isCloudActive && dbInstance) {
+          await dbInstance.collection('orders').doc(trackingModalOrder.id).update({ trackingNumber: updatedTracking });
+        } else {
+          setOrders(prev => prev.map(o => o.id === trackingModalOrder.id ? { ...o, trackingNumber: updatedTracking } : o));
+        }
         setTrackingModalOrder(null);
       };
 
@@ -364,8 +433,22 @@
                   <IconClipboardList />
                 </div>
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-bold text-slate-900">מערכת מעקב הזמנות</h1>
-                  <p className="text-xs sm:text-sm text-slate-500">ניהול דרישות, אישורים וסטטוס רכש</p>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900">מערכת מעקב הזמנות</h1>
+                    <button 
+                      onClick={() => setFirebaseConfigModal(true)}
+                      className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-bold transition-all ${
+                        isCloudActive 
+                          ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' 
+                          : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                      }`}
+                      title="לחץ להגדרת חיבור הענן"
+                    >
+                      {isCloudActive ? <IconCloud /> : <IconCloudOff />}
+                      <span>{isCloudActive ? 'מחובר לסנכרון ענן' : 'מצב מקומי בלבד (לחץ לחיבור)'}</span>
+                    </button>
+                  </div>
+                  <p className="text-xs sm:text-sm text-slate-500">ניהול דרישות, אישורים וסטטוס רכש בזמן אמת</p>
                 </div>
               </div>
 
@@ -402,7 +485,20 @@
             </div>
           </header>
 
-          {}
+          {/* Cloud Sync Warning Banner */}
+          {!isCloudActive && (
+            <div className="bg-amber-500 text-white px-4 py-2.5 text-center text-xs sm:text-sm font-medium flex items-center justify-center gap-2 shadow-inner">
+              <span>⚠️ <strong>שים לב:</strong> המערכת פועלת כרגע במצב זיכרון מקומי. שינויים שתבצע יישמרו רק במחשב זה.</span>
+              <button 
+                onClick={() => setFirebaseConfigModal(true)}
+                className="underline font-bold hover:text-amber-100 bg-black/10 px-2 py-0.5 rounded"
+              >
+                לחץ כאן לחיבור מסד נתונים משותף (Firebase)
+              </button>
+            </div>
+          )}
+
+          {/* Main Dashboard */}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
@@ -469,7 +565,7 @@
               </div>
             </div>
 
-            {}
+            {/* Table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-right border-collapse">
@@ -599,7 +695,6 @@
             </div>
           </main>
 
-          {}
           {/* Add / Edit Modal */}
           {isModalOpen && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -725,6 +820,36 @@
               </div>
             </div>
           )}
+
+          {/* Firebase Config Modal */}
+          {firebaseConfigModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <h3 className="text-base font-bold text-slate-900">הגדרת מסד נתונים בענן (Firebase)</h3>
+                  <button onClick={() => setFirebaseConfigModal(false)} className="text-slate-400 hover:text-slate-600"><IconX /></button>
+                </div>
+                <div className="p-6 flex flex-col gap-4">
+                  <p className="text-xs text-slate-600">
+                    כדי לסנכרן את ההזמנות בין כל המשתמשים בזמן אמת, הדבק כאן את אובייקט ה-<strong>firebaseConfig</strong> שקיבלת מ-Firebase Console (בפורמט JSON):
+                  </p>
+                  <textarea 
+                    rows="7"
+                    value={configInput}
+                    onChange={(e) => setConfigInput(e.target.value)}
+                    placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "myproject.firebaseapp.com",\n  "projectId": "myproject",\n  "storageBucket": "myproject.appspot.com",\n  "messagingSenderId": "...",\n  "appId": "..."\n}`}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl focus:outline-none resize-none"
+                    dir="ltr"
+                  />
+                  <div className="flex gap-3">
+                    <button onClick={handleSaveCloudConfig} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700">שמור והתחבר לענן</button>
+                    <button onClick={() => setFirebaseConfigModal(false)} className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">ביטול</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       );
     }
