@@ -373,33 +373,89 @@
         const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
         if (toExport.length === 0) return;
 
-        // 1. כותרות מעודכנות (ללא סטטוס, תאריך, מספר מעקב ומספר הזמנה)
         const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
 
-        const rows = toExport.map(o => {
-          // 2. יצירת נוסחת HYPERLINK עם המילה "קישור" בלבד בתא
+        // בניית שורות הטבלה
+        const rowsHtml = toExport.map(o => {
           const formattedUrl = o.url ? formatUrl(o.url) : '';
-          const cleanUrl = formattedUrl.replace(/"/g, '""');
-          const hyperlinkFormula = cleanUrl ? `=HYPERLINK("${cleanUrl}", "קישור")` : '';
+          const linkTd = formattedUrl 
+            ? `<a href="${formattedUrl}" target="_blank">קישור</a>` 
+            : '';
 
-          return [
-            `"${(o.itemName || '').replace(/"/g, '""')}"`,
-            `"${o.quantity || 1}"`,
-            `"${(o.project || '').replace(/"/g, '""')}"`,
-            `"${hyperlinkFormula.replace(/"/g, '""')}"`,
-            `"${(o.notes || '').replace(/"/g, '""')}"`
-          ];
-        });
+          return `
+            <tr>
+              <td>${(o.itemName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+              <td>${o.quantity || 1}</td>
+              <td>${(o.project || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+              <td>${linkTd}</td>
+              <td>${(o.notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+            </tr>
+          `;
+        }).join('');
 
-        const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        // מבנה הקובץ כולל הגדרת מימין-לשמאל (RTL) ועיצוב שורת הכותרת במירוק בהיר
+        const excelTemplate = `
+          <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+          <head>
+            <meta charset="utf-8">
+            <!--[if gte mso 9]>
+            <xml>
+              <x:ExcelWorkbook>
+                <x:ExcelWorksheets>
+                  <x:ExcelWorksheet>
+                    <x:Name>הזמנות</x:Name>
+                    <x:WorksheetOptions>
+                      <x:DisplayRightToLeft/>
+                    </x:WorksheetOptions>
+                  </x:ExcelWorksheet>
+                </x:ExcelWorksheets>
+              </x:ExcelWorkbook>
+            </xml>
+            <![endif]-->
+            <style>
+              th {
+                background-color: #d1fae5; /* ירוק בהיר */
+                color: #065f46;            /* טקסט ירוק כהה */
+                font-weight: bold;
+                border: 0.5pt solid #cbd5e1;
+                padding: 8px;
+                text-align: right;
+              }
+              td {
+                border: 0.5pt solid #cbd5e1;
+                padding: 6px;
+                text-align: right;
+              }
+              a {
+                color: #2563eb;
+                text-decoration: underline;
+              }
+            </style>
+          </head>
+          <body dir="rtl">
+            <table>
+              <thead>
+                <tr>
+                  ${headers.map(h => `<th>${h}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </body>
+          </html>
+        `;
+
+        const blob = new Blob(['\uFEFF' + excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.download = `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.xls`;
         link.click();
         URL.revokeObjectURL(url);
       };
+      
       const displayedOrders = useMemo(() => {
         return orders
           .filter(o => Boolean(o.isArchived) === showArchive)
