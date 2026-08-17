@@ -373,18 +373,23 @@
         const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
         if (toExport.length === 0) return;
 
-        const headers = ['שם הפריט', 'מספר הזמנה', 'כמות', 'פרויקט', 'סטטוס', 'מספר מעקב', 'קישור', 'הערות', 'תאריך'];
-        const rows = toExport.map(o => [
-          `"${(o.itemName || '').replace(/"/g, '""')}"`,
-          `"${(o.orderNumber || '').replace(/"/g, '""')}"`,
-          `"${o.quantity || 1}"`,
-          `"${(o.project || '').replace(/"/g, '""')}"`,
-          `"${(o.status || '').replace(/"/g, '""')}"`,
-          `"${(o.trackingNumber || '').replace(/"/g, '""')}"`,
-          `"${(o.url || '').replace(/"/g, '""')}"`,
-          `"${(o.notes || '').replace(/"/g, '""')}"`,
-          `"${o.date ? new Date(o.date).toLocaleDateString('he-IL') : ''}"`
-        ]);
+        // 1. כותרות מעודכנות (ללא סטטוס, תאריך, מספר מעקב ומספר הזמנה)
+        const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
+
+        const rows = toExport.map(o => {
+          // 2. יצירת נוסחת HYPERLINK עם המילה "קישור" בלבד בתא
+          const formattedUrl = o.url ? formatUrl(o.url) : '';
+          const cleanUrl = formattedUrl.replace(/"/g, '""');
+          const hyperlinkFormula = cleanUrl ? `=HYPERLINK("${cleanUrl}", "קישור")` : '';
+
+          return [
+            `"${(o.itemName || '').replace(/"/g, '""')}"`,
+            `"${o.quantity || 1}"`,
+            `"${(o.project || '').replace(/"/g, '""')}"`,
+            `"${hyperlinkFormula.replace(/"/g, '""')}"`,
+            `"${(o.notes || '').replace(/"/g, '""')}"`
+          ];
+        });
 
         const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -395,7 +400,6 @@
         link.click();
         URL.revokeObjectURL(url);
       };
-
       const displayedOrders = useMemo(() => {
         return orders
           .filter(o => Boolean(o.isArchived) === showArchive)
