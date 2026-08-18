@@ -392,10 +392,7 @@
         // יצירת הגיליון
         const ws = XLSX.utils.aoa_to_sheet(data);
 
-        // 1. הגדרת כיוון גיליון מימין לשמאל (RTL)
-        ws['!views'] = [{ RTL: true }];
-
-        // 2. הגדרת רוחבי עמודות מומלצים
+        // הגדרת רוחבי עמודות
         ws['!cols'] = [
           { wch: 30 }, // שם פריט
           { wch: 8 },  // כמות
@@ -404,7 +401,7 @@
           { wch: 35 }  // הערות
         ];
 
-        // 3. הגדרת סגנונות עיצוב
+        // הגדרת סגנונות עיצוב (כולל יישור לימין)
         const headerStyle = {
           fill: { fgColor: { rgb: "D1FAE5" } }, // רקע ירוק בהיר
           font: { bold: true, color: { rgb: "065F46" }, name: "Arial", sz: 11 },
@@ -421,7 +418,7 @@
           alignment: { horizontal: "right", vertical: "center" }
         };
 
-        // 4. החלת העיצובים והקישורים על התאים
+        // החלת העיצובים והקישורים על התאים
         const range = XLSX.utils.decode_range(ws['!ref']);
 
         for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -446,10 +443,18 @@
           }
         }
 
-        // 5. יצירת קובץ XLSX תקני והורדתו (ללא שום הודעת אזהרה)
+        // יצירת חוברת העבודה
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "הזמנות");
 
+        // הגדרת כיוון הגיליון מימין לשמאל (RTL) ברמת ה-Workbook עבור אקסל
+        wb.Workbook = {
+          Views: [
+            { RTL: true }
+          ]
+        };
+
+        // הוספת הגיליון לחוברת והורדת הקובץ
+        XLSX.utils.book_append_sheet(wb, ws, "הזמנות");
         XLSX.writeFile(wb, `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.xlsx`);
       };
       
