@@ -221,7 +221,7 @@
         return Array.from(setP);
       }, [orders]);
 
-      // רשימת מזמינים ייחודיים (כולל בדיקת תאימות לשמות שדות שונים במסד הנתונים)
+      // רשימת מזמינים ייחודיים
       const existingRequestedBy = useMemo(() => {
         const setR = new Set();
         orders.forEach(o => {
@@ -387,13 +387,13 @@
         const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
         if (toExport.length === 0) return;
 
-        const headers = ['שם הפריט', 'מזמין', 'כמות', 'פרויקט', 'קישור', 'הערות'];
+        // הסרת עמודת "מזמין" ממבנה הנתונים לייצוא
+        const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
         const data = [headers];
 
         toExport.forEach(o => {
           data.push([
             o.itemName || '',
-            o.requestedBy || o.orderer || o.ordererName || '',
             o.quantity || 1,
             o.project || '',
             o.url ? 'קישור' : '',
@@ -405,7 +405,6 @@
 
         ws['!cols'] = [
           { wch: 30 },
-          { wch: 18 },
           { wch: 8 },
           { wch: 18 },
           { wch: 12 },
@@ -439,7 +438,8 @@
               ws[cellAddress].s = headerStyle;
             } else {
               ws[cellAddress].s = cellStyle;
-              if (C === 4 && toExport[R - 1] && toExport[R - 1].url) {
+              // עמודת הקישור זזה עכשיו לאינדקס 3 (מכיוון שהסרנו את מזמין)
+              if (C === 3 && toExport[R - 1] && toExport[R - 1].url) {
                 const rawUrl = formatUrl(toExport[R - 1].url);
                 ws[cellAddress].l = { Target: rawUrl, Tooltip: rawUrl };
                 ws[cellAddress].s = linkStyle;
