@@ -143,7 +143,6 @@
         notes: ''
       });
 
-      // Initialize Firebase or LocalStorage
       useEffect(() => {
         let activeConfig = DEFAULT_FIREBASE_CONFIG;
         const savedConfig = localStorage.getItem('user_firebase_config');
@@ -163,7 +162,6 @@
             setDbInstance(db);
             setIsCloudActive(true);
 
-            // Listen to real-time changes
             const unsubscribe = db.collection('orders').onSnapshot(snapshot => {
               const cloudOrders = snapshot.docs.map(doc => ({
                 id: doc.id,
@@ -197,7 +195,6 @@
         }
       };
 
-      // Sync local storage as fallback
       useEffect(() => {
         if (!isCloudActive && orders.length > 0) {
           localStorage.setItem('company_orders_data', JSON.stringify(orders));
@@ -214,12 +211,22 @@
         }
       };
 
+      // רשימת פרויקטים ייחודיים
       const existingProjects = useMemo(() => {
         const setP = new Set();
         orders.forEach(o => {
           if (o.project && o.project.trim()) setP.add(o.project.trim());
         });
         return Array.from(setP);
+      }, [orders]);
+
+      // רשימת מזמינים ייחודיים
+      const existingRequestedBy = useMemo(() => {
+        const setR = new Set();
+        orders.forEach(o => {
+          if (o.requestedBy && o.requestedBy.trim()) setR.add(o.requestedBy.trim());
+        });
+        return Array.from(setR);
       }, [orders]);
 
       const stats = useMemo(() => {
@@ -377,8 +384,6 @@
         if (toExport.length === 0) return;
 
         const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
-
-        // בניית מערך הנתונים (ללא עמודת מזמין)
         const data = [headers];
 
         toExport.forEach(o => {
@@ -391,21 +396,18 @@
           ]);
         });
 
-        // יצירת הגיליון
         const ws = XLSX.utils.aoa_to_sheet(data);
 
-        // הגדרת רוחבי עמודות
         ws['!cols'] = [
-          { wch: 30 }, // שם פריט
-          { wch: 8 },  // כמות
-          { wch: 18 }, // פרויקט
-          { wch: 12 }, // קישור
-          { wch: 35 }  // הערות
+          { wch: 30 },
+          { wch: 8 },
+          { wch: 18 },
+          { wch: 12 },
+          { wch: 35 }
         ];
 
-        // הגדרת סגנונות עיצוב (כולל יישור לימין)
         const headerStyle = {
-          fill: { fgColor: { rgb: "D1FAE5" } }, // רקע ירוק בהיר
+          fill: { fgColor: { rgb: "D1FAE5" } },
           font: { bold: true, color: { rgb: "065F46" }, name: "Arial", sz: 11 },
           alignment: { horizontal: "right", vertical: "center" }
         };
@@ -420,7 +422,6 @@
           alignment: { horizontal: "right", vertical: "center" }
         };
 
-        // החלת העיצובים והקישורים על התאים
         const range = XLSX.utils.decode_range(ws['!ref']);
 
         for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -429,13 +430,9 @@
             if (!ws[cellAddress]) continue;
 
             if (R === 0) {
-              // שורת כותרת
               ws[cellAddress].s = headerStyle;
             } else {
-              // שורות נתונים
               ws[cellAddress].s = cellStyle;
-
-              // טיפול מיוחד בעמודת קישור (אינדקס עמודה 3)
               if (C === 3 && toExport[R - 1] && toExport[R - 1].url) {
                 const rawUrl = formatUrl(toExport[R - 1].url);
                 ws[cellAddress].l = { Target: rawUrl, Tooltip: rawUrl };
@@ -445,17 +442,9 @@
           }
         }
 
-        // יצירת חוברת העבודה
         const wb = XLSX.utils.book_new();
+        wb.Workbook = { Views: [{ RTL: true }] };
 
-        // הגדרת כיוון הגיליון מימין לשמאל (RTL) ברמת ה-Workbook עבור אקסל
-        wb.Workbook = {
-          Views: [
-            { RTL: true }
-          ]
-        };
-
-        // הוספת הגיליון לחוברת והורדת הקובץ
         XLSX.utils.book_append_sheet(wb, ws, "הזמנות");
         XLSX.writeFile(wb, `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.xlsx`);
       };
@@ -550,7 +539,6 @@
             </div>
           </header>
 
-          {/* Cloud Sync Warning Banner */}
           {!isCloudActive && (
             <div className="bg-amber-500 text-white px-4 py-2.5 text-center text-xs sm:text-sm font-medium flex items-center justify-center gap-2 shadow-inner">
               <span>⚠️ <strong>שים לב:</strong> המערכת פועלת כרגע במצב זיכרון מקומי. שינויים שתבצע יישמרו רק במחשב זה.</span>
@@ -782,11 +770,14 @@
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">מזמין</label>
                     <input 
-                      type="text" value={formData.requestedBy} 
+                      type="text" list="req-list" value={formData.requestedBy} 
                       onChange={e => setFormData({...formData, requestedBy: e.target.value})}
                       placeholder="שם המזמין..."
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    <datalist id="req-list">
+                      {existingRequestedBy.map(r => <option key={r} value={r} />)}
+                    </datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
