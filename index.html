@@ -116,7 +116,6 @@
       const [copiedId, setCopiedId] = useState(null);
       const [selectedIds, setSelectedIds] = useState([]);
       
-      // Cloud status
       const [dbInstance, setDbInstance] = useState(null);
       const [isCloudActive, setIsCloudActive] = useState(false);
       const [firebaseConfigModal, setFirebaseConfigModal] = useState(false);
@@ -207,7 +206,7 @@
           localStorage.setItem('user_firebase_config', JSON.stringify(parsed));
           window.location.reload();
         } catch(e) {
-          alert('הקוד שאתה מחזיק אינו JSON תקין. אנא העתק את ה-firebaseConfig במלואו.');
+          alert('הקוד שאתה מחזיק אינו JSON תקין.');
         }
       };
 
@@ -215,16 +214,21 @@
       const existingProjects = useMemo(() => {
         const setP = new Set();
         orders.forEach(o => {
-          if (o.project && o.project.trim()) setP.add(o.project.trim());
+          if (o.project && typeof o.project === 'string' && o.project.trim()) {
+            setP.add(o.project.trim());
+          }
         });
         return Array.from(setP);
       }, [orders]);
 
-      // רשימת מזמינים ייחודיים
+      // רשימת מזמינים ייחודיים (כולל בדיקת תאימות לשמות שדות שונים במסד הנתונים)
       const existingRequestedBy = useMemo(() => {
         const setR = new Set();
         orders.forEach(o => {
-          if (o.requestedBy && o.requestedBy.trim()) setR.add(o.requestedBy.trim());
+          const val = o.requestedBy || o.orderer || o.ordererName;
+          if (val && typeof val === 'string' && val.trim()) {
+            setR.add(val.trim());
+          }
         });
         return Array.from(setR);
       }, [orders]);
@@ -251,7 +255,7 @@
           setEditingOrder(order);
           setFormData({
             itemName: order.itemName || '',
-            requestedBy: order.requestedBy || '',
+            requestedBy: order.requestedBy || order.orderer || order.ordererName || '',
             orderNumber: order.orderNumber || '',
             trackingNumber: order.trackingNumber || '',
             quantity: order.quantity || 1,
@@ -383,12 +387,13 @@
         const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
         if (toExport.length === 0) return;
 
-        const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
+        const headers = ['שם הפריט', 'מזמין', 'כמות', 'פרויקט', 'קישור', 'הערות'];
         const data = [headers];
 
         toExport.forEach(o => {
           data.push([
             o.itemName || '',
+            o.requestedBy || o.orderer || o.ordererName || '',
             o.quantity || 1,
             o.project || '',
             o.url ? 'קישור' : '',
@@ -400,6 +405,7 @@
 
         ws['!cols'] = [
           { wch: 30 },
+          { wch: 18 },
           { wch: 8 },
           { wch: 18 },
           { wch: 12 },
@@ -433,7 +439,7 @@
               ws[cellAddress].s = headerStyle;
             } else {
               ws[cellAddress].s = cellStyle;
-              if (C === 3 && toExport[R - 1] && toExport[R - 1].url) {
+              if (C === 4 && toExport[R - 1] && toExport[R - 1].url) {
                 const rawUrl = formatUrl(toExport[R - 1].url);
                 ws[cellAddress].l = { Target: rawUrl, Tooltip: rawUrl };
                 ws[cellAddress].s = linkStyle;
@@ -453,9 +459,10 @@
         return orders
           .filter(o => Boolean(o.isArchived) === showArchive)
           .filter(o => {
+            const reqName = o.requestedBy || o.orderer || o.ordererName || '';
             const matchSearch = 
               (o.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-              (o.requestedBy || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+              reqName.toLowerCase().includes(searchTerm.toLowerCase()) ||
               (o.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
               (o.project || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
               (o.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -660,7 +667,7 @@
                             />
                           </td>
                           <td className="p-4 font-semibold text-slate-900">{order.itemName}</td>
-                          <td className="p-4 text-slate-700 font-medium">{order.requestedBy || '—'}</td>
+                          <td className="p-4 text-slate-700 font-medium">{order.requestedBy || order.orderer || order.ordererName || '—'}</td>
                           <td className="p-4">
                             {order.orderNumber ? (
                               <span className="font-mono text-xs bg-slate-100 text-slate-800 px-2 py-1 rounded border border-slate-200">
@@ -770,14 +777,14 @@
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">מזמין</label>
                     <input 
-                      type="text" list="req-list" value={formData.requestedBy} 
+                      type="text"
+                      list="req-list"
+                      autoComplete="off"
+                      value={formData.requestedBy} 
                       onChange={e => setFormData({...formData, requestedBy: e.target.value})}
-                      placeholder="שם המזמין..."
+                      placeholder="הקלד או בחר מזמין..."
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <datalist id="req-list">
-                      {existingRequestedBy.map(r => <option key={r} value={r} />)}
-                    </datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -801,13 +808,14 @@
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">פרויקט</label>
                       <input 
-                        type="text" list="proj-list" value={formData.project} 
+                        type="text"
+                        list="proj-list"
+                        autoComplete="off"
+                        value={formData.project} 
                         onChange={e => setFormData({...formData, project: e.target.value})}
+                        placeholder="הקלד או בחר פרויקט..."
                         className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <datalist id="proj-list">
-                        {existingProjects.map(p => <option key={p} value={p} />)}
-                      </datalist>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">סטטוס</label>
@@ -841,6 +849,15 @@
               </div>
             </div>
           )}
+
+          {/* Global Permanent Datalists */}
+          <datalist id="proj-list">
+            {existingProjects.map(p => <option key={p} value={p}>{p}</option>)}
+          </datalist>
+
+          <datalist id="req-list">
+            {existingRequestedBy.map(r => <option key={r} value={r}>{r}</option>)}
+          </datalist>
 
           {/* Notes Quick Modal */}
           {notesModalOrder && (
@@ -898,7 +915,7 @@
                 </div>
                 <div className="p-6 flex flex-col gap-4">
                   <p className="text-xs text-slate-600">
-                    כדי לסנכרן את ההזמנות בין כל המשתמשים בזמן אמת, הדבק כאן את אובייקט ה-<strong>firebaseConfig</strong> שקיבלת מ-Firebase Console (בפורמט JSON):
+                    כדי לסנכרן את ההזמנות בין כל המשתמשים בזמן אמת, הדבק כאן את אובייקט ה-<strong>firebaseConfig</strong>:
                   </p>
                   <textarea 
                     rows="7"
