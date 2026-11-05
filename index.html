@@ -17,6 +17,7 @@
   <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased">
   <div id="root"></div>
@@ -51,6 +52,8 @@
     const IconDownload = () => <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
     const IconCloud = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19x-9 0a7 7 0 1 1 3.22-13.041 5 5 0 0 1 9.13 4.253A4.5 4.5 0 0 1 17.5 19z"/></svg>;
     const IconCloudOff = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0-4 7h.5A5 5 0 0 0 6 17h8"/></svg>;
+
+    const IconTrash = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>;
 
     const STATUS_OPTIONS = [
       'ראשוני',
@@ -113,7 +116,530 @@
       }
     ];
 
-    function OrderTracker() {
+    // ===== Authentication (Firebase Auth, Email/Password) =====
+    // Users type a short username; it's mapped to an email in this domain.
+    // Create users in Firebase Console as: <username>@alpha-order-tracker.firebaseapp.com
+    const USERNAME_EMAIL_DOMAIN = 'alpha-order-tracker.firebaseapp.com';
+
+    const usernameToEmail = (username) => {
+      const u = username.trim().toLowerCase();
+      return u.includes('@') ? u : `${u}@${USERNAME_EMAIL_DOMAIN}`;
+    };
+
+    // Admin = whoever's UID is listed here. The same UID is enforced in Firestore Rules (see SPEC.md).
+    const ADMIN_UIDS = ['sMoVn9wwO9dZx2vMuQXf2AJRBNs2'];
+    const isAdminUid = (uid) => ADMIN_UIDS.includes(uid);
+
+    const MIN_PASSWORD_LENGTH = 8;
+    const USERNAME_PATTERN = /^[a-z0-9._-]{2,30}$/;
+
+    const emailToUsername = (email) => {
+      if (!email) return '';
+      const suffix = '@' + USERNAME_EMAIL_DOMAIN;
+      return email.endsWith(suffix) ? email.slice(0, -suffix.length) : email;
+    };
+
+    const getActiveFirebaseConfig = () => {
+      const savedConfig = localStorage.getItem('user_firebase_config');
+      if (savedConfig) {
+        try { return JSON.parse(savedConfig); } catch (e) {}
+      }
+      return DEFAULT_FIREBASE_CONFIG;
+    };
+
+    const initFirebaseApp = () => {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(getActiveFirebaseConfig());
+      }
+      return firebase.app();
+    };
+
+    const AUTH_ERRORS = {
+      'auth/invalid-credential': 'שם משתמש או סיסמה שגויים.',
+      'auth/invalid-login-credentials': 'שם משתמש או סיסמה שגויים.',
+      'auth/wrong-password': 'שם משתמש או סיסמה שגויים.',
+      'auth/user-not-found': 'שם משתמש או סיסמה שגויים.',
+      'auth/invalid-email': 'שם המשתמש אינו תקין.',
+      'auth/user-disabled': 'המשתמש הושבת. פנה למנהל המערכת.',
+      'auth/too-many-requests': 'יותר מדי ניסיונות כושלים. נסה שוב בעוד מספר דקות.',
+      'auth/network-request-failed': 'אין חיבור לרשת. בדוק את החיבור ונסה שוב.',
+      'auth/operation-not-allowed': 'התחברות בשם משתמש וסיסמה אינה מופעלת ב-Firebase.',
+      'auth/configuration-not-found': 'שירות ההתחברות (Authentication) עדיין לא הופעל ב-Firebase. פנה למנהל המערכת.'
+    };
+
+    function LoginScreen({ initError }) {
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState(initError || '');
+      const [busy, setBusy] = useState(false);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        if (!username.trim() || !password) return;
+        setBusy(true);
+        setError('');
+        try {
+          await firebase.auth().signInWithEmailAndPassword(usernameToEmail(username), password);
+        } catch (err) {
+          console.error('Login failed:', err);
+          setError(AUTH_ERRORS[err.code] || 'ההתחברות נכשלה. נסה שוב.');
+          setBusy(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4" dir="rtl">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+            <div className="px-6 pt-8 pb-4 flex flex-col items-center gap-3">
+              <div className="bg-blue-600 p-3 rounded-xl text-white shadow-md shadow-blue-500/20">
+                <IconClipboardList />
+              </div>
+              <h1 className="text-xl font-bold text-slate-900">מערכת מעקב הזמנות</h1>
+              <p className="text-sm text-slate-500">יש להתחבר כדי להמשיך</p>
+            </div>
+            <form onSubmit={handleLogin} className="px-6 pb-8 flex flex-col gap-4">
+              <div>
+                <label htmlFor="login-username" className="block text-xs font-bold text-slate-700 mb-1">שם משתמש</label>
+                <input
+                  id="login-username"
+                  type="text" autoComplete="username" autoFocus required
+                  value={username} onChange={e => setUsername(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label htmlFor="login-password" className="block text-xs font-bold text-slate-700 mb-1">סיסמה</label>
+                <input
+                  id="login-password"
+                  type="password" autoComplete="current-password" required
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  dir="ltr"
+                />
+              </div>
+              {error && (
+                <div role="alert" className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2 text-sm">{error}</div>
+              )}
+              <button
+                type="submit" disabled={busy}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm shadow-md transition-all"
+              >
+                {busy ? 'מתחבר...' : 'כניסה'}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    const PASSWORD_ERRORS = {
+      'auth/invalid-credential': 'הסיסמה הנוכחית שגויה.',
+      'auth/invalid-login-credentials': 'הסיסמה הנוכחית שגויה.',
+      'auth/wrong-password': 'הסיסמה הנוכחית שגויה.',
+      'auth/weak-password': 'הסיסמה החדשה חלשה מדי.',
+      'auth/too-many-requests': 'יותר מדי ניסיונות. נסה שוב בעוד מספר דקות.',
+      'auth/network-request-failed': 'אין חיבור לרשת. בדוק את החיבור ונסה שוב.'
+    };
+
+    const inputClass = 'w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+    // Change password: used both as a forced first-login screen and as a voluntary modal.
+    function ChangePasswordForm({ user, forced, onDone, onCancel }) {
+      const [currentPw, setCurrentPw] = useState('');
+      const [newPw, setNewPw] = useState('');
+      const [confirmPw, setConfirmPw] = useState('');
+      const [error, setError] = useState('');
+      const [busy, setBusy] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        if (newPw.length < MIN_PASSWORD_LENGTH) return setError(`הסיסמה החדשה חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים.`);
+        if (newPw !== confirmPw) return setError('הסיסמה החדשה והאימות אינם זהים.');
+        if (newPw === currentPw) return setError('הסיסמה החדשה חייבת להיות שונה מהנוכחית.');
+
+        setBusy(true);
+        try {
+          const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPw);
+          await user.reauthenticateWithCredential(cred);
+          await user.updatePassword(newPw);
+          await firebase.firestore().collection('users').doc(user.uid)
+            .set({ mustChangePassword: false, passwordChangedAt: Date.now() }, { merge: true });
+          onDone && onDone();
+        } catch (err) {
+          console.error('Password change failed:', err);
+          setError(PASSWORD_ERRORS[err.code] || 'החלפת הסיסמה נכשלה. נסה שוב.');
+          setBusy(false);
+        }
+      };
+
+      return (
+        <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-slate-200 overflow-hidden" dir="rtl">
+          <div className="px-6 pt-6 pb-2">
+            <h2 className="text-lg font-bold text-slate-900">{forced ? 'בחירת סיסמה אישית' : 'שינוי סיסמה'}</h2>
+            {forced && (
+              <p className="text-sm text-slate-500 mt-1">זו הכניסה הראשונה שלך. יש לבחור סיסמה חדשה במקום הסיסמה הזמנית שקיבלת.</p>
+            )}
+          </div>
+          <form onSubmit={handleSubmit} className="px-6 pb-6 pt-2 flex flex-col gap-3">
+            <div>
+              <label htmlFor="cp-current" className="block text-xs font-bold text-slate-700 mb-1">{forced ? 'סיסמה זמנית' : 'סיסמה נוכחית'}</label>
+              <input id="cp-current" type="password" autoComplete="current-password" required dir="ltr"
+                value={currentPw} onChange={e => setCurrentPw(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label htmlFor="cp-new" className="block text-xs font-bold text-slate-700 mb-1">סיסמה חדשה (לפחות {MIN_PASSWORD_LENGTH} תווים)</label>
+              <input id="cp-new" type="password" autoComplete="new-password" required dir="ltr"
+                value={newPw} onChange={e => setNewPw(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label htmlFor="cp-confirm" className="block text-xs font-bold text-slate-700 mb-1">אימות סיסמה חדשה</label>
+              <input id="cp-confirm" type="password" autoComplete="new-password" required dir="ltr"
+                value={confirmPw} onChange={e => setConfirmPw(e.target.value)} className={inputClass} />
+            </div>
+            {error && <div role="alert" className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2 text-sm">{error}</div>}
+            <div className="flex gap-3 mt-1">
+              <button type="submit" disabled={busy}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm">
+                {busy ? 'שומר...' : 'שמור סיסמה'}
+              </button>
+              {forced ? (
+                <button type="button" onClick={() => firebase.auth().signOut()}
+                  className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">התנתק</button>
+              ) : (
+                <button type="button" onClick={onCancel}
+                  className="px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">ביטול</button>
+              )}
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    function AccessDeniedScreen({ username, message }) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4" dir="rtl">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-slate-200 p-6 flex flex-col gap-4 text-center">
+            <h2 className="text-lg font-bold text-slate-900">אין הרשאת גישה</h2>
+            <p className="text-sm text-slate-600">
+              {message || <>המשתמש <span dir="ltr" className="font-mono">{username}</span> אינו מורשה להשתמש במערכת, או שהגישה שלו נחסמה. פנה למנהל המערכת.</>}
+            </p>
+            <button onClick={() => firebase.auth().signOut()}
+              className="bg-slate-800 hover:bg-slate-900 text-white py-2.5 rounded-xl font-bold text-sm">התנתק</button>
+          </div>
+        </div>
+      );
+    }
+
+    const LoadingScreen = () => (
+      <div className="min-h-screen flex items-center justify-center text-slate-400 text-sm">טוען...</div>
+    );
+
+    function AuthGate() {
+      // user: undefined = still checking, null = signed out, object = signed in
+      const [user, setUser] = useState(undefined);
+      // profile (users/{uid}): undefined = loading, null = not on the allowed list, object = allowed
+      const [profile, setProfile] = useState(undefined);
+      const [initError, setInitError] = useState('');
+      const [profileError, setProfileError] = useState('');
+
+      useEffect(() => {
+        try {
+          initFirebaseApp();
+          return firebase.auth().onAuthStateChanged(u => setUser(u || null));
+        } catch (e) {
+          console.error('Firebase Auth init failed:', e);
+          setInitError('לא ניתן להתחבר לשרת ההזדהות. בדוק את החיבור לרשת.');
+          setUser(null);
+        }
+      }, []);
+
+      // Live-watch the signed-in user's entry in the allowed-users list.
+      useEffect(() => {
+        setProfile(undefined);
+        setProfileError('');
+        if (!user) return;
+
+        const ref = firebase.firestore().collection('users').doc(user.uid);
+        const unsubscribe = ref.onSnapshot(async (snap) => {
+          if (snap.exists) {
+            setProfile(snap.data());
+            return;
+          }
+          if (isAdminUid(user.uid)) {
+            // First admin login: register the admin in the allowed-users list.
+            try {
+              await ref.set({
+                username: emailToUsername(user.email),
+                role: 'admin',
+                active: true,
+                mustChangePassword: false,
+                createdAt: Date.now()
+              });
+            } catch (e) {
+              console.error('Admin profile create failed:', e);
+              setProfile(null);
+            }
+            return;
+          }
+          setProfile(null);
+        }, (err) => {
+          console.error('Profile load failed:', err);
+          setProfileError('לא ניתן לבדוק את הרשאות המשתמש. בדוק את החיבור לרשת ונסה שוב.');
+          setProfile(null);
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      if (user === undefined) return <LoadingScreen />;
+      if (!user) return <LoginScreen initError={initError} />;
+      if (profile === undefined) return <LoadingScreen />;
+
+      const isAdmin = isAdminUid(user.uid);
+      const username = emailToUsername(user.email);
+
+      if (!isAdmin && (!profile || profile.active === false)) {
+        return <AccessDeniedScreen username={username} message={profileError} />;
+      }
+
+      if (profile && profile.mustChangePassword) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+            <ChangePasswordForm user={user} forced />
+          </div>
+        );
+      }
+
+      return (
+        <OrderTracker
+          currentUser={user}
+          currentUserName={username}
+          currentDisplayName={(profile && profile.displayName) || ''}
+          isAdmin={isAdmin}
+          onLogout={() => firebase.auth().signOut()}
+        />
+      );
+    }
+
+    // ===== Admin: user management =====
+    const generateTempPassword = () => {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      const arr = new Uint32Array(10);
+      crypto.getRandomValues(arr);
+      return Array.from(arr, n => chars[n % chars.length]).join('');
+    };
+
+    // A second Firebase app instance, so creating a user doesn't sign the admin out.
+    const getSecondaryAuth = async () => {
+      const name = 'user-admin';
+      const app = firebase.apps.find(a => a.name === name) || firebase.initializeApp(getActiveFirebaseConfig(), name);
+      const auth = app.auth();
+      await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+      return auth;
+    };
+
+    const CREATE_USER_ERRORS = {
+      'auth/email-already-in-use': 'שם המשתמש כבר קיים. אם הוא נחסם בעבר, אפשר להפעיל אותו מחדש מהרשימה.',
+      'auth/invalid-email': 'שם המשתמש אינו תקין.',
+      'auth/weak-password': 'הסיסמה הזמנית חלשה מדי.',
+      'auth/operation-not-allowed': 'יצירת משתמשים חסומה ב-Firebase. יש להפעיל Email/Password.',
+      'auth/admin-restricted-operation': 'יצירת משתמשים חסומה ב-Firebase. יש להפעיל את "Enable create (sign-up)".',
+      'auth/network-request-failed': 'אין חיבור לרשת. בדוק את החיבור ונסה שוב.',
+      'permission-denied': 'אין הרשאה לעדכן את רשימת המשתמשים. בדוק את כללי האבטחה (Rules).'
+    };
+
+    function UserManagementModal({ adminUid, onClose }) {
+      const [users, setUsers] = useState([]);
+      const [listError, setListError] = useState('');
+      const [newUsername, setNewUsername] = useState('');
+      const [newDisplayName, setNewDisplayName] = useState('');
+      const [tempPw, setTempPw] = useState(generateTempPassword);
+      const [busy, setBusy] = useState(false);
+      const [message, setMessage] = useState(null); // { type: 'ok'|'error', text, credentials? }
+
+      useEffect(() => {
+        return firebase.firestore().collection('users').onSnapshot(snap => {
+          const list = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+          list.sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+          setUsers(list);
+        }, err => {
+          console.error('Users list failed:', err);
+          setListError('לא ניתן לטעון את רשימת המשתמשים.');
+        });
+      }, []);
+
+      const handleCreate = async (e) => {
+        e.preventDefault();
+        setMessage(null);
+        const username = newUsername.trim().toLowerCase();
+        const displayName = newDisplayName.trim();
+        if (!displayName) {
+          return setMessage({ type: 'error', text: 'יש להזין שם מלא. הוא ימולא אוטומטית בשדה "מזמין".' });
+        }
+        if (!USERNAME_PATTERN.test(username)) {
+          return setMessage({ type: 'error', text: 'שם משתמש: 2–30 תווים, אותיות באנגלית קטנות, ספרות, נקודה, מקף או קו תחתון בלבד.' });
+        }
+        if (tempPw.length < MIN_PASSWORD_LENGTH) {
+          return setMessage({ type: 'error', text: `הסיסמה הזמנית חייבת להכיל לפחות ${MIN_PASSWORD_LENGTH} תווים.` });
+        }
+
+        setBusy(true);
+        let createdUid = null;
+        try {
+          const secondaryAuth = await getSecondaryAuth();
+          const cred = await secondaryAuth.createUserWithEmailAndPassword(usernameToEmail(username), tempPw);
+          createdUid = cred.user.uid;
+          await secondaryAuth.signOut();
+
+          await firebase.firestore().collection('users').doc(createdUid).set({
+            username,
+            displayName,
+            role: 'user',
+            active: true,
+            mustChangePassword: true,
+            createdAt: Date.now(),
+            createdBy: adminUid
+          });
+
+          setMessage({ type: 'ok', text: `המשתמש נוצר. העבר לעובד את הפרטים הבאים (בערוץ פרטי):`, credentials: { username, password: tempPw } });
+          setNewUsername('');
+          setNewDisplayName('');
+          setTempPw(generateTempPassword());
+        } catch (err) {
+          console.error('Create user failed:', err);
+          let text = CREATE_USER_ERRORS[err.code] || 'יצירת המשתמש נכשלה.';
+          if (createdUid) text = 'החשבון נוצר, אך הוספתו לרשימת המורשים נכשלה. ' + text;
+          setMessage({ type: 'error', text });
+        }
+        setBusy(false);
+      };
+
+      const updateUser = async (u, changes, confirmText) => {
+        if (confirmText && !window.confirm(confirmText)) return;
+        try {
+          await firebase.firestore().collection('users').doc(u.uid).update(changes);
+        } catch (err) {
+          console.error('Update user failed:', err);
+          alert(CREATE_USER_ERRORS[err.code] || 'העדכון נכשל.');
+        }
+      };
+
+      const handleEditDisplayName = async (u) => {
+        const next = window.prompt(`שם מלא עבור ${u.username} (ימולא אוטומטית בשדה "מזמין"):`, u.displayName || '');
+        if (next === null) return;
+        const trimmed = next.trim();
+        if (!trimmed) return alert('השם לא יכול להיות ריק.');
+        await updateUser(u, { displayName: trimmed });
+      };
+
+      const statusOf = (u) => {
+        if (u.active === false) return { text: 'חסום', cls: 'bg-red-50 text-red-700 border-red-200' };
+        if (u.mustChangePassword) return { text: 'ממתין להחלפת סיסמה', cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+        return { text: 'פעיל', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+      };
+
+      return (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0">
+              <h3 className="text-lg font-bold text-slate-900">ניהול משתמשים</h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600" title="סגור"><IconX /></button>
+            </div>
+
+            <form onSubmit={handleCreate} className="p-6 border-b border-slate-100 flex flex-col gap-3">
+              <h4 className="text-sm font-bold text-slate-800">הוספת משתמש חדש</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="um-display" className="block text-xs font-bold text-slate-700 mb-1">שם מלא (למזמין)</label>
+                  <input id="um-display" type="text" autoComplete="off" required placeholder="לדוגמה: משה כהן"
+                    value={newDisplayName} onChange={e => setNewDisplayName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label htmlFor="um-username" className="block text-xs font-bold text-slate-700 mb-1">שם משתמש</label>
+                  <input id="um-username" type="text" autoComplete="off" required dir="ltr" placeholder="e.g. moshe"
+                    value={newUsername} onChange={e => setNewUsername(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="um-temp" className="block text-xs font-bold text-slate-700 mb-1">סיסמה זמנית</label>
+                  <div className="flex gap-2">
+                    <input id="um-temp" type="text" autoComplete="off" required dir="ltr"
+                      value={tempPw} onChange={e => setTempPw(e.target.value)} className={inputClass + ' font-mono'} />
+                    <button type="button" onClick={() => setTempPw(generateTempPassword())}
+                      className="px-3 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-100 whitespace-nowrap">חדשה</button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">העובד יידרש לבחור סיסמה אישית בכניסה הראשונה.</p>
+              {message && (
+                <div role="alert" className={`rounded-lg px-3 py-2 text-sm border ${message.type === 'ok' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                  <div>{message.text}</div>
+                  {message.credentials && (
+                    <div className="mt-2 font-mono text-xs bg-white border border-emerald-200 rounded p-2 flex items-center justify-between gap-2" dir="ltr">
+                      <span>username: {message.credentials.username} · password: {message.credentials.password}</span>
+                      <button type="button"
+                        onClick={() => navigator.clipboard.writeText(`שם משתמש: ${message.credentials.username}\nסיסמה זמנית: ${message.credentials.password}`).catch(() => {})}
+                        className="text-emerald-700 hover:bg-emerald-50 p-1 rounded" title="העתק"><IconCopy /></button>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button type="submit" disabled={busy}
+                className="self-start bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2.5 rounded-xl font-bold text-sm">
+                {busy ? 'יוצר...' : 'צור משתמש'}
+              </button>
+            </form>
+
+            <div className="p-6">
+              <h4 className="text-sm font-bold text-slate-800 mb-3">משתמשים ({users.length})</h4>
+              {listError && <div className="text-sm text-red-700 mb-2">{listError}</div>}
+              <div className="flex flex-col divide-y divide-slate-100 border border-slate-200 rounded-xl">
+                {users.map(u => {
+                  const st = statusOf(u);
+                  const isSelfAdmin = u.role === 'admin' || isAdminUid(u.uid);
+                  return (
+                    <div key={u.uid} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-900">{u.displayName || <span className="text-slate-400 font-normal">ללא שם מלא</span>}</span>
+                        <span className="font-mono text-xs text-slate-500" dir="ltr">{u.username}</span>
+                        <button onClick={() => handleEditDisplayName(u)} className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="ערוך שם מלא"><IconEdit /></button>
+                        {isSelfAdmin && <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-bold">מנהל</span>}
+                        <span className={`text-xs border px-2 py-0.5 rounded-full font-bold ${st.cls}`}>{st.text}</span>
+                      </div>
+                      {!isSelfAdmin && (
+                        <div className="flex gap-2">
+                          {u.active !== false && !u.mustChangePassword && (
+                            <button onClick={() => updateUser(u, { mustChangePassword: true }, `לחייב את ${u.username} לבחור סיסמה חדשה בכניסה הבאה?`)}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold">חייב החלפת סיסמה</button>
+                          )}
+                          {u.active === false ? (
+                            <button onClick={() => updateUser(u, { active: true })}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold">הפעל מחדש</button>
+                          ) : (
+                            <button onClick={() => updateUser(u, { active: false }, `לחסום את ${u.username}? הוא לא יוכל לגשת למערכת עד שתפעיל אותו מחדש.`)}
+                              className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 font-semibold">חסום</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {users.length === 0 && !listError && <div className="px-4 py-6 text-center text-sm text-slate-400">אין משתמשים עדיין.</div>}
+              </div>
+              <p className="text-xs text-slate-500 mt-3">
+                עובד ששכח סיסמה: מאפסים לו סיסמה ב-Firebase Console (Authentication ← Users), ואז לוחצים כאן "חייב החלפת סיסמה".
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function OrderTracker({ currentUser, currentUserName, currentDisplayName, isAdmin, onLogout }) {
+      const [showUserMgmt, setShowUserMgmt] = useState(false);
+      const [showChangePw, setShowChangePw] = useState(false);
+      const [accessError, setAccessError] = useState('');
       const [orders, setOrders] = useState([]);
       const [showArchive, setShowArchive] = useState(false);
       const [searchTerm, setSearchTerm] = useState('');
@@ -175,6 +701,12 @@
               setOrders(cloudOrders);
             }, (err) => {
               console.error("Firestore error:", err);
+              if (err.code === 'permission-denied') {
+                // Signed in but not allowed: don't fall back to local mode, just show the error.
+                setOrders([]);
+                setAccessError('אין לך הרשאה לצפות בהזמנות. פנה למנהל המערכת.');
+                return;
+              }
               setIsCloudActive(false);
               loadLocalFallback();
             });
@@ -274,7 +806,8 @@
           setEditingOrder(null);
           setFormData({
             itemName: '',
-            requestedBy: '',
+            // Pre-filled with the signed-in user's full name; can be changed when ordering for someone else.
+            requestedBy: currentDisplayName || '',
             orderNumber: '',
             trackingNumber: '',
             quantity: 1,
@@ -338,6 +871,23 @@
           await dbInstance.collection('orders').doc(orderId).update({ isArchived: nextState });
         } else {
           setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isArchived: nextState } : o));
+        }
+      };
+
+      const handleDeleteOrder = async (order) => {
+        const label = order.itemName || 'ללא שם';
+        if (!window.confirm(`למחוק לצמיתות את ההזמנה "${label}"?\n\nלא ניתן לשחזר פעולה זו.`)) return;
+
+        try {
+          if (isCloudActive && dbInstance) {
+            await dbInstance.collection('orders').doc(order.id).delete();
+          } else {
+            setOrders(prev => prev.filter(o => o.id !== order.id));
+          }
+          setSelectedIds(prev => prev.filter(id => id !== order.id));
+        } catch (err) {
+          console.error('Delete failed:', err);
+          alert('המחיקה נכשלה. ייתכן שאין לך הרשאה או שאין חיבור לרשת.');
         }
       };
 
@@ -548,9 +1098,39 @@
                   <IconPlus />
                   <span>הזמנה חדשה</span>
                 </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowUserMgmt(true)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold border bg-white text-slate-700 border-slate-300 hover:bg-slate-100 transition-all"
+                  >
+                    ניהול משתמשים
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 border-r border-slate-200 pr-3">
+                  <button
+                    onClick={() => setShowChangePw(true)}
+                    className="text-xs text-slate-500 hover:text-blue-600 underline-offset-2 hover:underline"
+                    title="שינוי סיסמה"
+                    dir="ltr"
+                  >
+                    {currentUserName}
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="px-3 py-2 rounded-xl text-sm font-semibold border bg-white text-slate-700 border-slate-300 hover:bg-slate-100 transition-all"
+                  >
+                    התנתק
+                  </button>
+                </div>
               </div>
             </div>
           </header>
+
+          {accessError && (
+            <div role="alert" className="bg-red-600 text-white px-4 py-2.5 text-center text-sm font-medium">{accessError}</div>
+          )}
 
           {!isCloudActive && (
             <div className="bg-amber-500 text-white px-4 py-2.5 text-center text-xs sm:text-sm font-medium flex items-center justify-center gap-2 shadow-inner">
@@ -752,6 +1332,13 @@
                               >
                                 {order.isArchived ? <IconUndo /> : <IconArchive />}
                               </button>
+                              <button
+                                onClick={() => handleDeleteOrder(order)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                title="מחק הזמנה"
+                              >
+                                <IconTrash />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -791,6 +1378,9 @@
                       placeholder="הקלד או בחר מזמין..."
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    {!editingOrder && currentDisplayName && (
+                      <p className="text-xs text-slate-500 mt-1">מולא אוטומטית לפי המשתמש המחובר. אפשר לשנות אם מזמינים עבור עובד אחר.</p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -940,12 +1530,26 @@
             </div>
           )}
 
+          {showUserMgmt && isAdmin && (
+            <UserManagementModal adminUid={currentUser.uid} onClose={() => setShowUserMgmt(false)} />
+          )}
+
+          {showChangePw && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <ChangePasswordForm
+                user={currentUser}
+                onDone={() => { setShowChangePw(false); alert('הסיסמה עודכנה בהצלחה.'); }}
+                onCancel={() => setShowChangePw(false)}
+              />
+            </div>
+          )}
+
         </div>
       );
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<OrderTracker />);
+    root.render(<AuthGate />);
   </script>
 </body>
 </html>
