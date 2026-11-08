@@ -846,6 +846,16 @@
     function OrderTracker({ currentUser, currentUserName, currentDisplayName, isAdmin, onLogout }) {
       const [showUserMgmt, setShowUserMgmt] = useState(false);
       const [showAutomation, setShowAutomation] = useState(false);
+      // null = unknown/loading, true/false = automation switch state (admin only).
+      const [automationEnabled, setAutomationEnabled] = useState(null);
+
+      useEffect(() => {
+        if (!isAdmin) return;
+        return firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]).onSnapshot(
+          snap => setAutomationEnabled(snap.exists ? Boolean(snap.data().enabled) : false),
+          err => { console.error('Automation status failed:', err); setAutomationEnabled(null); }
+        );
+      }, [isAdmin]);
       const [showChangePw, setShowChangePw] = useState(false);
       const [accessError, setAccessError] = useState('');
       const [orders, setOrders] = useState([]);
@@ -1340,7 +1350,14 @@
                 {isAdmin && (
                   <button
                     onClick={() => setShowAutomation(true)}
-                    className="px-4 py-2 rounded-xl text-sm font-semibold border bg-white text-slate-700 border-slate-300 hover:bg-slate-100 transition-all"
+                    title={automationEnabled === true ? 'האוטומציה פעילה' : automationEnabled === false ? 'האוטומציה כבויה' : 'אוטומציה'}
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                      automationEnabled === true
+                        ? 'bg-emerald-500 text-white border-emerald-600 hover:bg-emerald-600'
+                        : automationEnabled === false
+                          ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
                   >
                     אוטומציה
                   </button>
