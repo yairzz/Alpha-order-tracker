@@ -1,6 +1,6 @@
 # אפיון מערכת – Alpha Order Tracker
 
-> גרסת אפיון: 1.6 · עודכן: 2026-11-08 · מצב: באוויר (commit `816b93d` ב-`main`). מסך כניסה, ניהול משתמשים, מילוי מזמין אוטומטי, מחיקת הזמנות, Rules נעולים. 1.6: תיקון "אין הרשאה" אחרי החלפת סיסמה ראשונה (בענף נפרד, ממתין לפרסום)
+> גרסת אפיון: 1.7 · עודכן: 2026-11-08 · מצב: באוויר (commit `460b57b` ב-`main`). מסך כניסה, ניהול משתמשים, מילוי מזמין אוטומטי, מחיקת הזמנות, Rules נעולים, תיקון "אין הרשאה" אחרי החלפת סיסמה ראשונה. 1.7: אוטומציית מייל שבועי. חלון ההגדרות באוויר, והקמת הסקריפט וה-Flow בתהליך
 
 ## 1. מטרה
 
@@ -93,6 +93,19 @@ Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה 
 
 **סיסמאות לא נשמרות במסד הנתונים.** הן נשמרות רק ב-Firebase Authentication, מוצפנות.
 
+### `settings/automation` – הגדרות המייל השבועי (מנהל בלבד)
+| שדה | סוג | תיאור |
+|---|---|---|
+| `enabled` | boolean | האם האוטומציה פעילה |
+| `recipientEmail` | string | נמען או נמענים, מופרדים בפסיק |
+| `ccEmail` | string | העתק (CC), לא חובה |
+| `replyTo` | string | כתובת לתשובות, לא חובה. משמשת רק הכתובת הראשונה, ורק בשליחה ישירה מ-Gmail |
+| `relayEmail` | string | תיבת ממסר ב-Outlook. אם השדה מלא, המייל יוצא דרך Power Automate מחשבון ה-Outlook (ראה סעיף 7א) |
+| `minItems` | number | שולחים כשיש **לפחות** כמה פריטים בסטטוס `ראשוני`. ברירת מחדל: 2 |
+| `subject`, `body` | string | נושא ונוסח המייל. אפשר לשלב בהם `{כמות}` (מספר הפריטים) ו-`{תאריך}` (תאריך השליחה) |
+| `updatedAt`, `updatedBy` | number, string | מועד העדכון האחרון באתר, וה-UID של מי שעדכן |
+| `lastRun` | map | נכתב על ידי הסקריפט: `at`, `result` (`sent` / `below-threshold` / `disabled` / `no-recipient` / `test` / `error`), `itemCount`, `message` |
+
 ## 5. תהליך עבודה – סטטוסים
 
 `ראשוני` ← `נשלחה לשגיא` ← `נשלחה למחלקת רכש` ← `אושרה ע"י אלירן` ← `הוזמנה` ← `התקבלה במחלקת רכש` ← `נמסרה` ← `אומתה ונסגרה`
@@ -116,6 +129,73 @@ Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה 
 10. **ייצוא לאקסל:** קובץ RTL מעוצב.
     **כלל קשיח:** בדיוק 5 עמודות: `שם הפריט`, `כמות`, `פרויקט`, `קישור`, `הערות`. **בלי** עמודת מזמין.
 11. **הגדרת Firebase חלופי:** אפשר להדביק קונפיגורציה אחרת (נשמרת ב-`localStorage`).
+12. **אוטומציה, מייל שבועי (מנהל בלבד):** כפתור "אוטומציה" בכותרת פותח חלון הגדרות שנשמר ב-`settings/automation`. אפשר להגדיר בו הפעלה או כיבוי, נמען, CC, Reply-To, סף, ונושא ונוסח שאפשר לערוך. החלון מציג גם את תוצאת הריצה האחרונה. פירוט בסעיף 7א.
+
+## 7א. אוטומציה – מייל שבועי
+
+**מה היא עושה:** בכל יום ראשון בין 08:00 ל-09:00 (שעון ישראל):
+1. קוראת את ההגדרות. אם האוטומציה כבויה או שלא הוגדר נמען, היא לא שולחת כלום.
+2. סופרת את ההזמנות בסטטוס `ראשוני` שאינן בארכיון.
+3. אם יש לפחות `minItems` הזמנות כאלה:
+   - שולחת מייל עם קובץ אקסל באותן 5 עמודות כמו הייצוא מהאתר (בלי מזמין).
+   - מעבירה את ההזמנות האלה לסטטוס `נשלחה לשגיא`.
+4. כותבת את התוצאה ב-`lastRun`.
+
+**איפה היא רצה:** Google Apps Script בחשבון ה-Gmail שבו נוצר פרויקט ה-Firebase.
+- **הנבחר: דרך ג'.** המייל לנמענים יוצא מ-**Outlook** דרך Power Automate (ראה "שליחה מ-Outlook" למטה).
+- בלי תיבת ממסר, המייל יוצא ישירות מ-Gmail, עם Reply-To.
+- הסקריפט פונה ל-Firestore עם ההרשאה של בעל הפרויקט. **אין מפתחות או סיסמאות**, וגם לא נשמר שום סוד.
+- גישה כזו עוקפת את ה-Rules, כמו גישה מה-Console.
+- הקוד שמור בריפו לתיעוד: `automation/weekly-email.gs` ו-`automation/appsscript.json`. **העותק שרץ בפועל** נמצא ב-script.google.com.
+- **שינוי בקוד בריפו לא משפיע על הריצה** עד שמדביקים אותו מחדש ב-Apps Script.
+
+**הקמה (חד-פעמית):**
+1. ב-script.google.com, מחובר לחשבון ה-Gmail הנכון: New project. שם: `Alpha order tracker – weekly email`.
+2. Project Settings ← לסמן "Show appsscript.json manifest file in editor".
+3. להדביק את תוכן `appsscript.json` ואת `weekly-email.gs` (במקום `Code.gs`) ← Save.
+4. להריץ `createRelayToken` ← לאשר את ההרשאות. מופיעה האזהרה "Google hasn't verified this app", כי זה סקריפט פרטי: Advanced ← Go to … ← Allow. ביומן (Execution log) מופיע הקוד הסודי. להעתיק אותו לתהליך ב-Power Automate בלבד.
+5. להקים את התהליך ב-Power Automate (ראה למטה).
+6. באתר, אוטומציה: תיבת ממסר = כתובת ה-Outlook ← שמור (המתג "פעילה" עדיין כבוי).
+7. להריץ `testSendToMe`. אמור להגיע ל-Outlook מייל "[בדיקה] …" נקי עם אקסל, שנשלח מ-Outlook עצמו.
+8. להריץ `installWeeklyTrigger` (פעם אחת). לבדוק ב-Triggers (סמל שעון) שמופיע `weeklyCheck`, Week timer, Sunday.
+9. באתר: נמען = שגיא, CC לפי הצורך, לסמן "האוטומציה פעילה" ← שמור.
+
+### שליחה מ-Outlook דרך Power Automate (ממסר)
+**הזרימה:**
+1. Apps Script שולח מ-Gmail **רק** לתיבת הממסר (ה-Outlook של יאיר). הנושא בנוי כך:
+   `[AOT-RELAY] <הנושא> ||to=<נמענים מופרדים ב-;>||cc=<העתק>||key=<קוד סודי>`
+2. תהליך ב-Power Automate מזהה את המייל ובודק שני דברים: שהשולח הוא כתובת ה-Gmail, ושהקוד נכון.
+3. אם הבדיקות עוברות, התהליך שולח **מייל חדש** מה-Outlook לנמענים, עם הנושא הנקי, הנוסח והאקסל.
+
+**אבטחה:**
+- בלי שתי הבדיקות, כל אחד יכול היה לשלוח ליאיר מייל עם נושא מתאים ולגרום ל-Outlook שלו לשלוח מיילים בשמו.
+- הקוד הסודי (`RELAY_TOKEN`) נוצר ב-Apps Script עם `createRelayToken()` ונשמר רק ב-Script Properties ובתהליך ב-Power Automate. **אסור לשמור אותו בריפו.**
+
+**הקמת התהליך** ב-make.powerautomate.com, עם חשבון העבודה:
+1. Create ← **Automated cloud flow**. שם: `AOT weekly relay`. טריגר: **When a new email arrives (V3)** (Office 365 Outlook).
+2. הגדרות הטריגר (Show all):
+   - Folder: `Inbox`
+   - From: כתובת ה-Gmail
+   - Subject Filter: `[AOT-RELAY]`
+   - Include Attachments: `Yes`
+3. **Condition:** בצד שמאל, ביטוי (Expression):
+   `first(split(last(split(triggerOutputs()?['body/subject'], '||key=')), '||'))`
+   התנאי: `is equal to` ← הקוד הסודי.
+4. בענף **If yes**:
+   - **Select** (Data Operation):
+     - From: `triggerOutputs()?['body/attachments']`
+     - Map (במצב טקסט): `{"Name": "@{item()?['name']}", "ContentBytes": "@{item()?['contentBytes']}"}`
+   - **Send an email (V2)**:
+     - To: `first(split(last(split(triggerOutputs()?['body/subject'], '||to=')), '||'))`
+     - Subject: `trim(replace(first(split(triggerOutputs()?['body/subject'], '||')), '[AOT-RELAY]', ''))`
+     - Body: הערך הדינמי `Body` מהטריגר
+     - Advanced ← CC: `first(split(last(split(triggerOutputs()?['body/subject'], '||cc=')), '||'))`
+     - Attachments: לעבור לקלט מערך (סמל `T` / Switch to input entire array) ← הפלט של `Select`.
+   - (רשות) **Move email (V2)** של המייל המקורי לתיקייה `AOT` כדי לא להעמיס על תיבת הדואר.
+5. Save.
+
+**כיבוי:** לבטל את הסימון "האוטומציה פעילה" באתר. הסקריפט ימשיך לרוץ, אבל לא ישלח. כדי לעצור אותו לגמרי מריצים `removeWeeklyTrigger`.
+**כשל:** Google שולח מייל שגיאה לבעל הסקריפט, והשגיאה מוצגת גם ב"ריצה אחרונה" באתר.
 
 ## 7. אבטחה
 
@@ -180,6 +260,12 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly(['mustChangePassword', 'passwordChangedAt'])
             && request.resource.data.mustChangePassword == false);
+    }
+
+    // Automation settings (weekly email): admin only. The Apps Script uses the
+    // project owner's Google credentials, which are not subject to these rules.
+    match /settings/{docId} {
+      allow read, write: if isAdmin();
     }
 
     match /{document=**} {

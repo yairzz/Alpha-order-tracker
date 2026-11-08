@@ -641,8 +641,211 @@
       );
     }
 
+    // ===== Admin: weekly email automation settings =====
+    // Stored in Firestore at settings/automation. Read by the Google Apps Script
+    // (automation/weekly-email.gs), which runs every Sunday at 08:00.
+    const AUTOMATION_DOC = ['settings', 'automation'];
+    const AUTOMATION_DEFAULTS = {
+      enabled: false,
+      recipientEmail: '',
+      ccEmail: '',
+      replyTo: '',
+      relayEmail: '',
+      minItems: 2,
+      subject: 'פריטים להזמנה – {תאריך} ({כמות} פריטים)',
+      body: 'שלום,\n\nמצורף קובץ אקסל עם {כמות} פריטים שממתינים להזמנה.\n\nתודה,\nמערכת מעקב הזמנות'
+    };
+    const EMAIL_PATTERN = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+    const splitEmails = (s) => (s || '').split(/[,;\s]+/).map(x => x.trim()).filter(Boolean);
+    const allEmailsValid = (s) => splitEmails(s).every(e => EMAIL_PATTERN.test(e));
+
+    const LAST_RUN_LABELS = {
+      sent: 'נשלח מייל',
+      'below-threshold': 'לא נשלח – פחות פריטים מהסף',
+      disabled: 'לא נשלח – האוטומציה כבויה',
+      'no-recipient': 'לא נשלח – לא הוגדר נמען',
+      test: 'שליחת בדיקה',
+      error: 'שגיאה'
+    };
+
+    function AutomationSettingsModal({ adminUid, onClose }) {
+      const [form, setForm] = useState(null);
+      const [lastRun, setLastRun] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [message, setMessage] = useState(null);
+
+      useEffect(() => {
+        const ref = firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]);
+        ref.get().then(snap => {
+          const data = snap.exists ? snap.data() : {};
+          setForm({ ...AUTOMATION_DEFAULTS, ...data });
+          setLastRun(data.lastRun || null);
+        }).catch(err => {
+          console.error('Automation settings load failed:', err);
+          setForm({ ...AUTOMATION_DEFAULTS });
+          setMessage({ type: 'error', text: err.code === 'permission-denied'
+            ? 'אין הרשאה לקרוא את ההגדרות. יש לעדכן את כללי האבטחה (Rules) ב-Firebase.'
+            : 'טעינת ההגדרות נכשלה.' });
+        });
+      }, []);
+
+      if (!form) {
+        return (
+          <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 text-slate-500 text-sm">טוען הגדרות...</div>
+          </div>
+        );
+      }
+
+      const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+
+      const handleSave = async (e) => {
+        e.preventDefault();
+        setMessage(null);
+        const minItems = parseInt(form.minItems, 10);
+        if (form.enabled && splitEmails(form.recipientEmail).length === 0) {
+          return setMessage({ type: 'error', text: 'כדי להפעיל את האוטומציה יש להזין כתובת נמען.' });
+        }
+        if (!allEmailsValid(form.recipientEmail) || !allEmailsValid(form.ccEmail) || !allEmailsValid(form.replyTo)) {
+          return setMessage({ type: 'error', text: 'אחת מכתובות המייל אינה תקינה. כמה כתובות מפרידים בפסיק.' });
+        }
+        if (splitEmails(form.relayEmail).length > 1 || !allEmailsValid(form.relayEmail)) {
+          return setMessage({ type: 'error', text: 'תיבת הממסר צריכה להיות כתובת מייל אחת תקינה.' });
+        }
+        if (!Number.isInteger(minItems) || minItems < 1 || minItems > 1000) {
+          return setMessage({ type: 'error', text: 'הסף חייב להיות מספר שלם, 1 ומעלה.' });
+        }
+        if (!form.subject.trim()) {
+          return setMessage({ type: 'error', text: 'יש להזין נושא למייל.' });
+        }
+
+        setBusy(true);
+        try {
+          await firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]).set({
+            enabled: Boolean(form.enabled),
+            recipientEmail: splitEmails(form.recipientEmail).join(', '),
+            ccEmail: splitEmails(form.ccEmail).join(', '),
+            replyTo: splitEmails(form.replyTo).join(', '),
+            relayEmail: splitEmails(form.relayEmail).join(''),
+            minItems,
+            subject: form.subject.trim(),
+            body: form.body,
+            updatedAt: Date.now(),
+            updatedBy: adminUid
+          }, { merge: true });
+          setMessage({ type: 'ok', text: 'ההגדרות נשמרו.' });
+        } catch (err) {
+          console.error('Automation settings save failed:', err);
+          setMessage({ type: 'error', text: err.code === 'permission-denied'
+            ? 'אין הרשאה לשמור. יש לעדכן את כללי האבטחה (Rules) ב-Firebase.'
+            : 'השמירה נכשלה.' });
+        }
+        setBusy(false);
+      };
+
+      const labelCls = 'block text-xs font-bold text-slate-700 mb-1';
+      const textCls = 'w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+      return (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0">
+              <h3 className="text-lg font-bold text-slate-900">אוטומציה – מייל שבועי</h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600" title="סגור"><IconX /></button>
+            </div>
+
+            <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
+              <p className="text-sm text-slate-600">
+                בכל יום ראשון בסביבות 08:00 המערכת בודקת כמה פריטים (שאינם בארכיון) נמצאים בסטטוס "ראשוני".
+                אם יש לפחות מספר הפריטים שבסף, נשלח מייל עם קובץ אקסל (אותן 5 עמודות כמו בייצוא), והפריטים עוברים לסטטוס "נשלחה לשגיא".
+              </p>
+
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                <input type="checkbox" checked={Boolean(form.enabled)} onChange={set('enabled')} className="w-4 h-4" />
+                האוטומציה פעילה
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="au-to" className={labelCls}>נמען (אל)</label>
+                  <input id="au-to" type="text" dir="ltr" autoComplete="off" placeholder="name@alphatau.com"
+                    value={form.recipientEmail} onChange={set('recipientEmail')} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="au-cc" className={labelCls}>העתק (CC) – לא חובה</label>
+                  <input id="au-cc" type="text" dir="ltr" autoComplete="off" placeholder="name@alphatau.com"
+                    value={form.ccEmail} onChange={set('ccEmail')} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="au-reply" className={labelCls}>כתובת לתשובות (Reply-To) – לא חובה</label>
+                  <input id="au-reply" type="text" dir="ltr" autoComplete="off" placeholder="name@alphatau.com"
+                    value={form.replyTo} onChange={set('replyTo')} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="au-min" className={labelCls}>לשלוח כשיש לפחות X פריטים</label>
+                  <input id="au-min" type="number" min="1" step="1" dir="ltr"
+                    value={form.minItems} onChange={set('minItems')} className={inputClass} />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 -mt-2">כמה כתובות באותו שדה מפרידים בפסיק.</p>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <label htmlFor="au-relay" className={labelCls}>שליחה דרך Outlook – תיבת ממסר (לא חובה)</label>
+                <input id="au-relay" type="text" dir="ltr" autoComplete="off" placeholder="yourname@alphatau.com"
+                  value={form.relayEmail} onChange={set('relayEmail')} className={inputClass} />
+                <p className="text-xs text-slate-600 mt-1">
+                  אם השדה מלא, המייל נשלח קודם לתיבה הזו, ו-Power Automate שולח אותו משם לנמענים מחשבון ה-Outlook.
+                  אם השדה ריק, המייל נשלח ישירות מחשבון ה-Gmail (ואז משמשת כתובת ה-Reply-To).
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="au-subject" className={labelCls}>נושא המייל</label>
+                <input id="au-subject" type="text" value={form.subject} onChange={set('subject')} className={textCls} />
+              </div>
+              <div>
+                <label htmlFor="au-body" className={labelCls}>נוסח המייל</label>
+                <textarea id="au-body" rows="7" value={form.body} onChange={set('body')} className={textCls + ' resize-y'} />
+                <p className="text-xs text-slate-500 mt-1">
+                  אפשר לשלב בנושא ובנוסח: <span className="font-mono">{'{כמות}'}</span> = מספר הפריטים, <span className="font-mono">{'{תאריך}'}</span> = תאריך השליחה.
+                  {' '}<button type="button" className="text-blue-600 hover:underline"
+                    onClick={() => setForm(prev => ({ ...prev, subject: AUTOMATION_DEFAULTS.subject, body: AUTOMATION_DEFAULTS.body }))}>
+                    החזר לנוסח ברירת המחדל
+                  </button>
+                </p>
+              </div>
+
+              {lastRun && (
+                <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                  ריצה אחרונה: {lastRun.at ? new Date(lastRun.at).toLocaleString('he-IL') : '—'} · {LAST_RUN_LABELS[lastRun.result] || lastRun.result}
+                  {typeof lastRun.itemCount === 'number' ? ` · ${lastRun.itemCount} פריטים` : ''}
+                  {lastRun.message ? ` · ${lastRun.message}` : ''}
+                </div>
+              )}
+
+              {message && (
+                <div role="alert" className={`rounded-lg px-3 py-2 text-sm border ${message.type === 'ok' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                  {message.text}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button type="submit" disabled={busy}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2.5 rounded-xl font-bold text-sm">
+                  {busy ? 'שומר...' : 'שמור הגדרות'}
+                </button>
+                <button type="button" onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm border border-slate-300 text-slate-700 hover:bg-slate-100">סגור</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     function OrderTracker({ currentUser, currentUserName, currentDisplayName, isAdmin, onLogout }) {
       const [showUserMgmt, setShowUserMgmt] = useState(false);
+      const [showAutomation, setShowAutomation] = useState(false);
       const [showChangePw, setShowChangePw] = useState(false);
       const [accessError, setAccessError] = useState('');
       const [orders, setOrders] = useState([]);
@@ -1134,6 +1337,15 @@
                   </button>
                 )}
 
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowAutomation(true)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold border bg-white text-slate-700 border-slate-300 hover:bg-slate-100 transition-all"
+                  >
+                    אוטומציה
+                  </button>
+                )}
+
                 <div className="flex items-center gap-2 border-r border-slate-200 pr-3">
                   <button
                     onClick={() => setShowChangePw(true)}
@@ -1558,6 +1770,10 @@
 
           {showUserMgmt && isAdmin && (
             <UserManagementModal adminUid={currentUser.uid} onClose={() => setShowUserMgmt(false)} />
+          )}
+
+          {showAutomation && isAdmin && (
+            <AutomationSettingsModal adminUid={currentUser.uid} onClose={() => setShowAutomation(false)} />
           )}
 
           {showChangePw && (
