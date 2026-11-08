@@ -1,7 +1,7 @@
 /**
  * Alpha-order-tracker – weekly email automation (Google Apps Script).
  *
- * Every Sunday ~08:00 (Asia/Jerusalem):
+ * Every Sunday and Wednesday ~08:00 (Asia/Jerusalem):
  *   1. Reads the settings from Firestore: settings/automation (edited on the site, admin only).
  *   2. Counts non-archived orders whose status is "ראשוני".
  *   3. If the count >= minItems: emails an Excel file (same 5 columns as the site export)
@@ -21,7 +21,7 @@
  * Functions to run by hand from the Apps Script editor:
  *   - createRelayToken()      – creates the secret code for the Outlook relay (run once).
  *   - testSendToMe()          – sends the current list to YOU only (via the relay if set), changes nothing.
- *   - installWeeklyTrigger()  – turns on the weekly schedule (run once).
+ *   - installWeeklyTrigger()  – turns on the schedule, Sunday + Wednesday (run once; re-running replaces it).
  *   - removeWeeklyTrigger()   – turns off the weekly schedule.
  */
 
@@ -32,6 +32,9 @@ const TIMEZONE = 'Asia/Jerusalem';
 const SOURCE_STATUS = 'ראשוני';
 const TARGET_STATUS = 'נשלחה לשגיא';
 const SENDER_NAME = 'מערכת מעקב הזמנות';
+// Relay mode: the email text sits between these markers; Power Automate keeps only what is between them.
+const BODY_START = '[[AOT-START]]';
+const BODY_END = '[[AOT-END]]';
 
 const DEFAULTS = {
   enabled: false,
@@ -112,16 +115,21 @@ function createRelayToken() {
   Logger.log('Relay code (paste into the Power Automate condition): %s', token);
 }
 
-/** Run once to turn on the weekly schedule (Sunday, 08:00–09:00 Israel time). */
+/** Days the check runs (08:00–09:00 Israel time). */
+const RUN_DAYS = [ScriptApp.WeekDay.SUNDAY, ScriptApp.WeekDay.WEDNESDAY];
+
+/** Run once to turn on the schedule (Sunday and Wednesday, 08:00–09:00 Israel time). */
 function installWeeklyTrigger() {
   removeWeeklyTrigger();
-  ScriptApp.newTrigger('weeklyCheck')
-    .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
-    .atHour(8)
-    .inTimezone(TIMEZONE)
-    .create();
-  Logger.log('Weekly trigger installed: Sunday 08:00 %s.', TIMEZONE);
+  RUN_DAYS.forEach(function (day) {
+    ScriptApp.newTrigger('weeklyCheck')
+      .timeBased()
+      .onWeekDay(day)
+      .atHour(8)
+      .inTimezone(TIMEZONE)
+      .create();
+  });
+  Logger.log('Triggers installed: %s at 08:00 %s.', RUN_DAYS.join(', '), TIMEZONE);
 }
 
 /** Turns off the weekly schedule. */
@@ -254,16 +262,21 @@ function sendReport_(settings, items, opts) {
     body = 'זהו מייל בדיקה. הוא נשלח רק אליך, והסטטוסים לא שונו.\n\n' + body;
   }
 
+  const relay = cleanEmails_(settings.relayEmail);
+  // Explicit <br> line breaks (Outlook drops "white-space: pre-wrap").
+  const bodyHtml = escapeHtml_(body).replace(/\r?\n/g, '<br>');
+  // In relay mode, markers let Power Automate cut out only our text. Outlook adds
+  // its own banners (e.g. "You don't often get email from…") to incoming mail.
+  const htmlInner = relay ? BODY_START + bodyHtml + BODY_END : bodyHtml;
+
   const mail = {
     to: opts.to,
     subject: subject,
     body: body,
-    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">' +
-      escapeHtml_(body) + '</div>',
+    htmlBody: '<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px">' + htmlInner + '</div>',
     name: SENDER_NAME
   };
 
-  const relay = cleanEmails_(settings.relayEmail);
   if (relay) {
     // Outlook relay: mail only the relay inbox; Power Automate reads the routing from the subject.
     const token = PropertiesService.getScriptProperties().getProperty('RELAY_TOKEN');

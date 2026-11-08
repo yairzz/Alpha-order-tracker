@@ -643,7 +643,7 @@
 
     // ===== Admin: weekly email automation settings =====
     // Stored in Firestore at settings/automation. Read by the Google Apps Script
-    // (automation/weekly-email.gs), which runs every Sunday at 08:00.
+    // (automation/weekly-email.gs), which runs every Sunday and Wednesday at 08:00.
     const AUTOMATION_DOC = ['settings', 'automation'];
     const AUTOMATION_DEFAULTS = {
       enabled: false,
@@ -756,7 +756,7 @@
 
             <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
               <p className="text-sm text-slate-600">
-                בכל יום ראשון בסביבות 08:00 המערכת בודקת כמה פריטים (שאינם בארכיון) נמצאים בסטטוס "ראשוני".
+                בכל יום ראשון ורביעי בסביבות 08:00 המערכת בודקת כמה פריטים (שאינם בארכיון) נמצאים בסטטוס "ראשוני".
                 אם יש לפחות מספר הפריטים שבסף, נשלח מייל עם קובץ אקסל (אותן 5 עמודות כמו בייצוא), והפריטים עוברים לסטטוס "נשלחה לשגיא".
               </p>
 

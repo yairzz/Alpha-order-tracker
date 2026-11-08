@@ -1,6 +1,6 @@
 {
   "timeZone": "Asia/Jerusalem",
-  "exceptionLogging": "STACKDRIVER",
+  "dependencies": {},
   "runtimeVersion": "V8",
   "oauthScopes": [
     "https://www.googleapis.com/auth/datastore",
