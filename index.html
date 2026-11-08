@@ -362,7 +362,12 @@
         if (!user) return;
 
         const ref = firebase.firestore().collection('users').doc(user.uid);
-        const unsubscribe = ref.onSnapshot(async (snap) => {
+        // includeMetadataChanges: also notify when a local write is confirmed by the server.
+        const unsubscribe = ref.onSnapshot({ includeMetadataChanges: true }, async (snap) => {
+          // Ignore local, not-yet-saved changes (e.g. right after a password change).
+          // Otherwise the app opens before the server knows mustChangePassword=false,
+          // and the orders listener gets permission-denied.
+          if (snap.metadata.hasPendingWrites) return;
           if (snap.exists) {
             setProfile(snap.data());
             return;
@@ -693,25 +698,46 @@
             setDbInstance(db);
             setIsCloudActive(true);
 
-            const unsubscribe = db.collection('orders').onSnapshot(snapshot => {
-              const cloudOrders = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-              }));
-              setOrders(cloudOrders);
-            }, (err) => {
-              console.error("Firestore error:", err);
-              if (err.code === 'permission-denied') {
-                // Signed in but not allowed: don't fall back to local mode, just show the error.
-                setOrders([]);
-                setAccessError('אין לך הרשאה לצפות בהזמנות. פנה למנהל המערכת.');
-                return;
-              }
-              setIsCloudActive(false);
-              loadLocalFallback();
-            });
+            let unsubscribe = () => {};
+            let retryTimer = null;
+            let attempts = 0;
+            let stopped = false;
+            const MAX_PERMISSION_RETRIES = 3;
 
-            return () => unsubscribe();
+            const subscribe = () => {
+              unsubscribe = db.collection('orders').onSnapshot(snapshot => {
+                attempts = 0;
+                setAccessError('');
+                const cloudOrders = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                }));
+                setOrders(cloudOrders);
+              }, (err) => {
+                console.error("Firestore error:", err);
+                if (err.code === 'permission-denied') {
+                  // Permissions may still be propagating (e.g. right after a password change): retry a few times.
+                  if (!stopped && attempts < MAX_PERMISSION_RETRIES) {
+                    attempts += 1;
+                    retryTimer = setTimeout(subscribe, 1500 * attempts);
+                    return;
+                  }
+                  // Signed in but not allowed: don't fall back to local mode, just show the error.
+                  setOrders([]);
+                  setAccessError('אין לך הרשאה לצפות בהזמנות. נסה לרענן את הדף; אם זה חוזר, פנה למנהל המערכת.');
+                  return;
+                }
+                setIsCloudActive(false);
+                loadLocalFallback();
+              });
+            };
+            subscribe();
+
+            return () => {
+              stopped = true;
+              if (retryTimer) clearTimeout(retryTimer);
+              unsubscribe();
+            };
           } catch (e) {
             console.error("Firebase init failed:", e);
             setIsCloudActive(false);

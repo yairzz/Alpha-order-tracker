@@ -1,6 +1,6 @@
 # אפיון מערכת – Alpha Order Tracker
 
-> גרסת אפיון: 1.4 · עודכן: 2026-11-05 · מצב: מסך כניסה, ניהול משתמשים, מילוי מזמין אוטומטי ומחיקת הזמנות (ענף `feature/login-screen`, טרם עלה לאתר החי)
+> גרסת אפיון: 1.6 · עודכן: 2026-11-08 · מצב: באוויר (commit `816b93d` ב-`main`). מסך כניסה, ניהול משתמשים, מילוי מזמין אוטומטי, מחיקת הזמנות, Rules נעולים. 1.6: תיקון "אין הרשאה" אחרי החלפת סיסמה ראשונה (בענף נפרד, ממתין לפרסום)
 
 ## 1. מטרה
 
@@ -49,6 +49,8 @@
    - `mustChangePassword: true`: מוצג מסך החלפת סיסמה, בלי גישה לנתונים.
    - אחרת: נטען `OrderTracker`.
 4. ההתחברות נשמרת בדפדפן. כפתור "התנתק" מוציא את המשתמש מהמערכת.
+5. **סנכרון עם השרת:** `AuthGate` מתעלם משינויים מקומיים ברשומת המשתמש שעוד לא נשמרו בשרת (`hasPendingWrites`). לכן אחרי החלפת סיסמה ה-`OrderTracker` נפתח רק אחרי שהשרת אישר `mustChangePassword: false`.
+6. **ניסיון חוזר:** אם קריאת ההזמנות נכשלת ב-`permission-denied`, ה-`OrderTracker` מנסה שוב עד 3 פעמים (אחרי 1.5, 3 ו-4.5 שניות). רק אחרי זה מוצגת הודעת "אין הרשאה".
 
 ### שם משתמש ← אימייל
 Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה לשם המשתמש סיומת קבועה:
@@ -123,7 +125,23 @@ Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה 
 | **Firestore Security Rules** | **ההגנה האמיתית על הנתונים** | רק משתמש פעיל ברשימת המורשים ניגש להזמנות. רק המנהל משנה את רשימת המורשים |
 | `apiKey` ו-UID בקוד | — | אינם סודות. מותר שיופיעו בקוד ציבורי |
 
-**מצב נכון ל-2026-11-05:** נבדק שקריאת `orders` **אפשרית ללא התחברות**. חובה לנעול את ה-Rules (שלב 6 בתוכנית).
+### מצב אבטחה (נכון ל-2026-11-05)
+| נושא | מצב |
+|---|---|
+| Rules נעולים. קריאת `orders`/`users` ללא התחברות מחזירה 403 | ✅ נבדק |
+| Email/Password מופעל, `yairzz.github.io` ב-Authorized domains | ✅ |
+| 7 משתמשים נוצרו (מנהל + 6), כולם עם שם מלא | ✅ |
+| GitHub: רק `yairzz` עם הרשאת כתיבה | ✅ |
+| GitHub: Ruleset `protect-main` (חסימת מחיקה ו-force push) | ✅ |
+| GitHub: Secret scanning + Push protection | ✅ |
+| GitHub: **אימות דו-שלבי (2FA)** | ⏳ **פתוח.** יאיר יפעיל בהמשך |
+| כניסה ראשונה של עובד רגיל **אחרי** נעילת ה-Rules | ⏳ **פתוח.** ייבדק כשהעובד הראשון יתחבר (מתוכנן ליום ראשון) |
+| גיבוי קבוע של נתוני Firestore | ⏳ פתוח (רשות) |
+
+### הגנה על הקוד ב-GitHub
+- הריפו ציבורי: כולם יכולים **לקרוא**, ורק `yairzz` יכול **לשנות**.
+- Ruleset `protect-main` על ענף ברירת המחדל: **Restrict deletions** + **Block force pushes**. **לא** מוגדרת חובת Pull Request, כדי לא לחסום עדכונים רגילים.
+- Secret scanning + Push protection: GitHub חוסם העלאה של סודות לקוד. התראה על `apiKey` של Firebase היא התראת שווא מבחינתנו (המפתח לא סודי).
 
 ### Rules (Firestore ← Rules)
 ```
@@ -175,8 +193,8 @@ service cloud.firestore {
 1. Authentication ← Sign-in method ← **Email/Password** ← Enable. (✅ בוצע 2026-11-05)
 2. Authentication ← Users ← Add user: **רק המנהל**, `yairz@alpha-order-tracker.firebaseapp.com`. (✅ בוצע 2026-11-05)
 3. Authentication ← Settings ← User actions: **"Enable create (sign-up)" נשאר פעיל.** זה נדרש כדי שהמנהל יוכל ליצור משתמשים מהאתר. ההגנה היא ה-Rules.
-4. Authentication ← Settings ← Authorized domains: לוודא ש-`yairzz.github.io` ו-`localhost` מופיעים.
-5. **רק אחרי** שהאתר החדש עלה וההתחברות נבדקה: Firestore ← Rules ← להדביק את הכללים ← Publish.
+4. Authentication ← Settings ← Authorized domains: `yairzz.github.io` ו-`localhost`. (✅ נוסף 2026-11-05)
+5. Firestore ← Rules ← להדביק את הכללים ← Publish. (✅ פורסם 2026-11-05, אחרי שהאתר החדש עלה ונבדק)
 
 ## 8. גיבוי ושחזור
 
