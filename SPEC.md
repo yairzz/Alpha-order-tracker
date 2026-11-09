@@ -245,8 +245,12 @@ Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה 
        `concat('<div dir="rtl" style="font-family:Arial,sans-serif;font-size:14px">', first(split(last(split(triggerOutputs()?['body/body'], '[[AOT-START]]')), '[[AOT-END]]')), '</div>')`
      - Advanced ← CC: `first(split(last(split(triggerOutputs()?['body/subject'], '||cc=')), '||'))`
      - Attachments: לעבור לקלט מערך (סמל `T` / Switch to input entire array) ← הפלט של `Select`.
-   - (רשות) **Move email (V2)** של המייל המקורי לתיקייה `AOT` כדי לא להעמיס על תיבת הדואר.
+   - **Delete email (V2)** אחרי `Send an email (V2)`: Message Id ← מ-`When a new email arrives (V3)` (Dynamic content). מוחק את מייל הביניים (עובר ל-Deleted Items) **רק** אם השליחה הצליחה. בענף If no לא מוחקים, כדי שמייל חשוד יישאר לבדיקה. (✅ הוגדר 2026-11-09. לא לשלב עם Move email: אחרי העברה המחיקה לא מוצאת את המייל.)
 5. Save.
+
+**החלפת הקוד הסודי** (אם נחשף, למשל בצילום מסך של מייל הביניים): Apps Script ← ⚙️ Project Settings ← Script Properties ← למחוק את `RELAY_TOKEN` ← Save. להריץ `createRelayToken` ולהעתיק את הקוד מהיומן. ב-Power Automate להחליף את הערך בצד ימין של ה-Condition ← Save. לבדוק עם `testSendToMe`. (✅ הוחלף 2026-11-09)
+
+**ניקוי Gmail (ידני):** עותק של כל מייל ביניים נשאר ב-Sent של ה-Gmail. מסננים של Gmail לא פועלים על דואר יוצא, ומחיקה אוטומטית מהסקריפט הייתה דורשת הרשאה לכל תיבת הדואר, ולכן **הוחלט לא לעשות אותה**. פעם בחודש: לחפש ב-Gmail `in:sent subject:"[AOT-RELAY]"` ← לסמן הכל ← למחוק.
 
 **כיבוי:** לבטל את הסימון "האוטומציה פעילה" באתר. הסקריפט ימשיך לרוץ, אבל לא ישלח. כדי לעצור אותו לגמרי מריצים `removeWeeklyTrigger`.
 **כשל:** Google שולח מייל שגיאה לבעל הסקריפט, והשגיאה מוצגת גם ב"ריצה אחרונה" באתר.
