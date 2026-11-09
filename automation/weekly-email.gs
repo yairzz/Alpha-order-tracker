@@ -5,6 +5,7 @@
  *   1. Reads the settings from Firestore: settings/automation (edited on the site, admin only).
  *   2. Counts non-archived orders whose status is "ראשוני".
  *   3. If the count >= minItems: emails an Excel file (same 5 columns as the site export)
+ *      plus the quote files (הצעות מחיר) attached to those orders,
  *      and moves those orders to status "נשלחה לשגיא".
  *   4. Writes the result to settings/automation.lastRun (shown on the site).
  *
@@ -291,9 +292,39 @@ function sendReport_(settings, items, opts) {
     const replyTo = cleanEmails_(settings.replyTo).split(',')[0];
     if (replyTo) mail.replyTo = replyTo.trim();
   }
-  if (items.length > 0) mail.attachments = [buildExcel_(items)];
+  if (items.length > 0) mail.attachments = [buildExcel_(items)].concat(loadQuoteAttachments_(items));
 
   MailApp.sendEmail(mail);
+}
+
+/**
+ * Quote files (הצעות מחיר) uploaded on the site: each order lists them in quoteFiles [{id,name,type}],
+ * and the content (base64) lives in the doc quoteFiles/<id>. Named "<item> - הצעת מחיר N.<ext>",
+ * the same as the site's ZIP export. A missing file is skipped (logged), never blocks the email.
+ */
+function loadQuoteAttachments_(items) {
+  const blobs = [];
+  const used = {};
+  items.forEach(function (o) {
+    const files = Array.isArray(o.quoteFiles) ? o.quoteFiles : [];
+    files.forEach(function (meta, i) {
+      if (!meta || !meta.id) return;
+      const doc = firestoreFetch_('/quoteFiles/' + encodeURIComponent(meta.id), 'get');
+      const f = doc ? fromFields_(doc.fields || {}) : null;
+      if (!f || !f.data) { Logger.log('Quote file %s not found (order item: %s).', meta.id, o.itemName); return; }
+      let name = quoteFileName_(o, i, meta);
+      for (let n = 2; used[name]; n++) name = name.replace(/(\.\w+)$/, ' (' + n + ')$1');
+      used[name] = true;
+      blobs.push(Utilities.newBlob(Utilities.base64Decode(f.data), f.type || meta.type || 'application/octet-stream', name));
+    });
+  });
+  return blobs;
+}
+
+function quoteFileName_(order, index, meta) {
+  const base = String(order.itemName || 'פריט').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 80) || 'פריט';
+  const ext = (String(meta.name || '').split('.').pop() || 'pdf').toLowerCase();
+  return base + ' - הצעת מחיר ' + (index + 1) + '.' + ext;
 }
 
 /** Same 5 columns as the site's "ייצוא לאקסל": no orderer column. */

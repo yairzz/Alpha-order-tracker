@@ -24,6 +24,8 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <!-- Excel XLSX Generator with Styling -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <!-- ZIP (export of the Excel together with the quote files) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -63,6 +65,57 @@
     const IconCloudOff = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0-4 7h.5A5 5 0 0 0 6 17h8"/></svg>;
 
     const IconTrash = () => <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>;
+
+    const IconPaperclip = () => <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>;
+
+    // ===== Quote files (הצעות מחיר) =====
+    // Each file is a separate Firestore doc in "quoteFiles" (base64 in field "data"), so the
+    // orders list stays light. The order itself keeps only the metadata: quoteFiles: [{id,name,type,size}].
+    // Firestore docs are limited to 1 MiB, so a file may be up to 700 KB (base64 adds ~33%).
+    const QUOTE_COLLECTION = 'quoteFiles';
+    const QUOTE_MAX_FILES = 2;
+    const QUOTE_MAX_BYTES = 700 * 1024;
+    const QUOTE_TYPES = {
+      pdf: 'application/pdf',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+
+    const fileExt = (name) => (String(name || '').split('.').pop() || '').toLowerCase();
+
+    const formatFileSize = (bytes) => bytes >= 1024 * 1024
+      ? (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+
+    const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+    const base64ToBlob = (b64, type) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: type || 'application/octet-stream' });
+    };
+
+    const downloadBlob = (blob, filename) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    };
+
+    // File name used in the export ZIP and the email: "<item name> - הצעת מחיר 1.pdf"
+    const quoteExportName = (order, index, meta) => {
+      const base = String(order.itemName || 'פריט').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 80) || 'פריט';
+      return `${base} - הצעת מחיר ${index + 1}.${fileExt(meta.name) || 'pdf'}`;
+    };
 
     const STATUS_OPTIONS = [
       'ראשוני',
@@ -880,6 +933,12 @@
 
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingOrder, setEditingOrder] = useState(null);
+      // Quote files in the add/edit form: existing ones ({id,name,type,size}) and new ones ({file,name,type,size}).
+      const [quoteDraft, setQuoteDraft] = useState([]);
+      const [removedQuoteIds, setRemovedQuoteIds] = useState([]);
+      const [quoteError, setQuoteError] = useState('');
+      const [isSaving, setIsSaving] = useState(false);
+      const [isExporting, setIsExporting] = useState(false);
       
       const [notesModalOrder, setNotesModalOrder] = useState(null);
       const [currentNotes, setCurrentNotes] = useState('');
@@ -1063,7 +1122,55 @@
             notes: ''
           });
         }
+        setQuoteDraft(order && Array.isArray(order.quoteFiles) ? order.quoteFiles.map(q => ({ ...q })) : []);
+        setRemovedQuoteIds([]);
+        setQuoteError('');
         setIsModalOpen(true);
+      };
+
+      const handleAddQuoteFiles = (e) => {
+        const picked = Array.from(e.target.files || []);
+        e.target.value = ''; // allow picking the same file again after removing it
+        setQuoteError('');
+        const next = [...quoteDraft];
+        for (const file of picked) {
+          const ext = fileExt(file.name);
+          if (!QUOTE_TYPES[ext]) { setQuoteError(`"${file.name}": אפשר לצרף רק קובצי PDF או XLSX.`); continue; }
+          if (file.size > QUOTE_MAX_BYTES) {
+            setQuoteError(`"${file.name}" גדול מדי (${formatFileSize(file.size)}). הגודל המרבי: ${formatFileSize(QUOTE_MAX_BYTES)}.`);
+            continue;
+          }
+          if (next.length >= QUOTE_MAX_FILES) { setQuoteError(`אפשר לצרף עד ${QUOTE_MAX_FILES} קבצים להזמנה.`); break; }
+          next.push({ file, name: file.name, type: QUOTE_TYPES[ext], size: file.size });
+        }
+        setQuoteDraft(next);
+      };
+
+      const handleRemoveQuoteDraft = (index) => {
+        const item = quoteDraft[index];
+        if (item && item.id && !item.file) setRemovedQuoteIds(prev => [...prev, item.id]);
+        setQuoteDraft(prev => prev.filter((_, i) => i !== index));
+        setQuoteError('');
+      };
+
+      // Returns the base64 content of a stored quote file (local mode keeps it inline).
+      const loadQuoteFileData = async (meta) => {
+        if (meta.data) return meta.data;
+        if (!dbInstance) throw new Error('no database');
+        const snap = await dbInstance.collection(QUOTE_COLLECTION).doc(meta.id).get();
+        if (!snap.exists) throw new Error('missing file ' + meta.id);
+        return snap.data().data;
+      };
+
+      const handleDownloadQuote = async (order, index) => {
+        const meta = order.quoteFiles[index];
+        try {
+          const data = await loadQuoteFileData(meta);
+          downloadBlob(base64ToBlob(data, meta.type), meta.name || quoteExportName(order, index, meta));
+        } catch (err) {
+          console.error('Quote download failed:', err);
+          alert('הורדת הקובץ נכשלה. בדוק את החיבור ונסה שוב.');
+        }
       };
 
       const handleSaveOrder = async (e) => {
@@ -1085,22 +1192,58 @@
           createdAt: editingOrder ? (editingOrder.createdAt || Date.now()) : Date.now()
         };
 
-        if (isCloudActive && dbInstance) {
-          if (editingOrder) {
-            await dbInstance.collection('orders').doc(editingOrder.id).update(payload);
+        setIsSaving(true);
+        try {
+          if (isCloudActive && dbInstance) {
+            // One atomic batch: the order, its new quote files, and deletion of removed ones.
+            const orderRef = editingOrder
+              ? dbInstance.collection('orders').doc(editingOrder.id)
+              : dbInstance.collection('orders').doc();
+            const batch = dbInstance.batch();
+            const meta = [];
+            for (const q of quoteDraft) {
+              if (!q.file) { meta.push({ id: q.id, name: q.name, type: q.type, size: q.size }); continue; }
+              const fileRef = dbInstance.collection(QUOTE_COLLECTION).doc();
+              batch.set(fileRef, {
+                orderId: orderRef.id,
+                name: q.name,
+                type: q.type,
+                size: q.size,
+                data: await readFileAsBase64(q.file),
+                createdAt: Date.now(),
+                uploadedBy: (firebase.auth().currentUser || {}).uid || ''
+              });
+              meta.push({ id: fileRef.id, name: q.name, type: q.type, size: q.size });
+            }
+            removedQuoteIds.forEach(id => batch.delete(dbInstance.collection(QUOTE_COLLECTION).doc(id)));
+            const fullPayload = { ...payload, quoteFiles: meta };
+            if (editingOrder) batch.update(orderRef, fullPayload); else batch.set(orderRef, fullPayload);
+            await batch.commit();
           } else {
-            await dbInstance.collection('orders').add(payload);
+            // Local mode: the file content stays inline in the order (localStorage).
+            const meta = [];
+            for (const q of quoteDraft) {
+              meta.push(q.file
+                ? { id: 'q-' + Date.now() + '-' + meta.length, name: q.name, type: q.type, size: q.size, data: await readFileAsBase64(q.file) }
+                : q);
+            }
+            const fullPayload = { ...payload, quoteFiles: meta };
+            if (editingOrder) {
+              setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...fullPayload } : o));
+            } else {
+              const newOrder = { id: 'ord-' + Date.now(), ...fullPayload };
+              setOrders(prev => [newOrder, ...prev]);
+            }
           }
-        } else {
-          if (editingOrder) {
-            setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...payload } : o));
-          } else {
-            const newOrder = { id: 'ord-' + Date.now(), ...payload };
-            setOrders(prev => [newOrder, ...prev]);
-          }
+          setIsModalOpen(false);
+        } catch (err) {
+          console.error('Save failed:', err);
+          setQuoteError(err && err.code === 'permission-denied'
+            ? 'השמירה נכשלה: אין הרשאה. אם צירפת קבצים, ייתכן שכללי האבטחה עוד לא עודכנו – פנה למנהל המערכת.'
+            : 'השמירה נכשלה. בדוק את החיבור ונסה שוב.');
+        } finally {
+          setIsSaving(false);
         }
-
-        setIsModalOpen(false);
       };
 
       const handleStatusChange = async (orderId, newStatus) => {
@@ -1126,7 +1269,10 @@
 
         try {
           if (isCloudActive && dbInstance) {
-            await dbInstance.collection('orders').doc(order.id).delete();
+            const batch = dbInstance.batch();
+            batch.delete(dbInstance.collection('orders').doc(order.id));
+            (order.quoteFiles || []).forEach(q => q.id && batch.delete(dbInstance.collection(QUOTE_COLLECTION).doc(q.id)));
+            await batch.commit();
           } else {
             setOrders(prev => prev.filter(o => o.id !== order.id));
           }
@@ -1185,9 +1331,9 @@
         setSelectedIds(allSelected ? prev => prev.filter(id => !displayed.includes(id)) : prev => Array.from(new Set([...prev, ...displayed])));
       };
 
-      const handleExportExcel = () => {
+      const handleExportExcel = async () => {
         const toExport = selectedIds.length > 0 ? orders.filter(o => selectedIds.includes(o.id)) : displayedOrders;
-        if (toExport.length === 0) return;
+        if (toExport.length === 0 || isExporting) return;
 
         // הסרת עמודת "מזמין" ממבנה הנתונים לייצוא
         const headers = ['שם הפריט', 'כמות', 'פרויקט', 'קישור', 'הערות'];
@@ -1254,7 +1400,36 @@
         wb.Workbook = { Views: [{ RTL: true }] };
 
         XLSX.utils.book_append_sheet(wb, ws, "הזמנות");
-        XLSX.writeFile(wb, `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        const baseName = `דוח_הזמנות_${new Date().toISOString().slice(0, 10)}`;
+
+        const withQuotes = toExport.filter(o => Array.isArray(o.quoteFiles) && o.quoteFiles.length > 0);
+        if (withQuotes.length === 0) {
+          XLSX.writeFile(wb, `${baseName}.xlsx`);
+          return;
+        }
+
+        // There are quote files: one ZIP with the Excel + every quote file named after its item.
+        setIsExporting(true);
+        try {
+          const zip = new JSZip();
+          zip.file(`${baseName}.xlsx`, XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+          const used = new Set();
+          for (const o of withQuotes) {
+            for (let i = 0; i < o.quoteFiles.length; i++) {
+              const meta = o.quoteFiles[i];
+              let name = quoteExportName(o, i, meta);
+              for (let n = 2; used.has(name); n++) name = name.replace(/(\.\w+)$/, ` (${n})$1`);
+              used.add(name);
+              zip.file(name, await loadQuoteFileData(meta), { base64: true });
+            }
+          }
+          downloadBlob(await zip.generateAsync({ type: 'blob' }), `${baseName}.zip`);
+        } catch (err) {
+          console.error('Export failed:', err);
+          alert('הייצוא נכשל: לא הצלחתי לטעון את קובצי הצעות המחיר. בדוק את החיבור ונסה שוב.');
+        } finally {
+          setIsExporting(false);
+        }
       };
       
       const displayedOrders = useMemo(() => {
@@ -1316,10 +1491,11 @@
               <div className="flex items-center gap-3 flex-wrap justify-end">
                 <button
                   onClick={handleExportExcel}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95"
+                  disabled={isExporting}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-md transition-all active:scale-95"
                 >
                   <IconDownload />
-                  <span>{selectedIds.length > 0 ? `ייצא מסומנים (${selectedIds.length})` : 'ייצא לאקסל'}</span>
+                  <span>{isExporting ? 'מכין קובץ...' : selectedIds.length > 0 ? `ייצא מסומנים (${selectedIds.length})` : 'ייצא לאקסל'}</span>
                 </button>
 
                 <button
@@ -1512,7 +1688,26 @@
                               className="w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                             />
                           </td>
-                          <td className="p-4 font-semibold text-slate-900">{order.itemName}</td>
+                          <td className="p-4 font-semibold text-slate-900">
+                            <div>{order.itemName}</div>
+                            {Array.isArray(order.quoteFiles) && order.quoteFiles.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {order.quoteFiles.map((q, i) => (
+                                  <button
+                                    key={q.id || i}
+                                    type="button"
+                                    onClick={() => handleDownloadQuote(order, i)}
+                                    title={`הורד: ${q.name}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 px-1.5 py-0.5 rounded"
+                                  >
+                                    <IconPaperclip />
+                                    <span>הצעת מחיר {i + 1}</span>
+                                    <span className="text-slate-400 uppercase">{fileExt(q.name)}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </td>
                           <td className="p-4 text-slate-700 font-medium">{order.requestedBy || order.orderer || order.ordererName || '—'}</td>
                           <td className="p-4">
                             {order.orderNumber ? (
@@ -1613,12 +1808,12 @@
           {/* Add / Edit Modal */}
           {isModalOpen && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100">
-                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 max-h-[92vh] flex flex-col">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
                   <h3 className="text-lg font-bold text-slate-900">{editingOrder ? 'עריכת הזמנה' : 'הוספת הזמנה חדשה'}</h3>
                   <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><IconX /></button>
                 </div>
-                <form onSubmit={handleSaveOrder} className="p-6 flex flex-col gap-4">
+                <form onSubmit={handleSaveOrder} className="p-6 flex flex-col gap-4 overflow-y-auto">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">שם הפריט *</label>
                     <input 
@@ -1691,14 +1886,44 @@
                     />
                   </div>
                   <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      הצעות מחיר <span className="font-normal text-slate-500">(עד {QUOTE_MAX_FILES} קבצים, PDF או XLSX, עד {formatFileSize(QUOTE_MAX_BYTES)} לקובץ)</span>
+                    </label>
+                    {quoteDraft.length > 0 && (
+                      <ul className="flex flex-col gap-1.5 mb-2">
+                        {quoteDraft.map((q, i) => (
+                          <li key={q.id || q.name + i} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-sm">
+                            <span className="text-slate-500"><IconPaperclip /></span>
+                            <span className="flex-1 truncate" dir="auto" title={q.name}>{q.name}</span>
+                            <span className="text-xs text-slate-400 shrink-0">{formatFileSize(q.size)}</span>
+                            <button type="button" onClick={() => handleRemoveQuoteDraft(i)}
+                              className="text-slate-400 hover:text-red-600 shrink-0" title="הסר קובץ">
+                              <IconX />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {quoteDraft.length < QUOTE_MAX_FILES && (
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg">
+                        <IconPaperclip />
+                        <span>צרף הצעת מחיר</span>
+                        <input type="file" multiple className="hidden"
+                          accept=".pdf,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          onChange={handleAddQuoteFiles} />
+                      </label>
+                    )}
+                    {quoteError && <p role="alert" className="text-xs text-red-600 mt-1.5">{quoteError}</p>}
+                  </div>
+                  <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">הערות</label>
-                    <textarea 
+                    <textarea
                       rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})}
                       className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                     />
                   </div>
                   <div className="flex gap-3 mt-2">
-                    <button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700">שמור הזמנה</button>
+                    <button type="submit" disabled={isSaving} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-60">{isSaving ? 'שומר...' : 'שמור הזמנה'}</button>
                     <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50">ביטול</button>
                   </div>
                 </form>
