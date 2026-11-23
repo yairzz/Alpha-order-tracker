@@ -281,6 +281,7 @@ Firebase מזהה משתמשים לפי אימייל. המערכת מוסיפה 
 | Rules נעולים. קריאת `orders`/`users` ללא התחברות מחזירה 403 | ✅ נבדק |
 | Email/Password מופעל, `yairzz.github.io` ב-Authorized domains | ✅ |
 | 7 משתמשים נוצרו (מנהל + 6), כולם עם שם מלא | ✅ |
+| בעלות על פרויקט Firebase: שני Owners – ה-Gmail הפרטי, וחשבון Google על כתובת העבודה `yairz@alphatau.com` (Project settings ← Users and permissions) | ✅ נוסף 2026-11-23. ההרשאה מכסה את Firebase בלבד; שני פרויקטי Apps Script (מייל שבועי, ניקוי Gmail) עדיין רק ב-Gmail הפרטי |
 | GitHub: רק `yairzz` עם הרשאת כתיבה | ✅ |
 | GitHub: Ruleset `protect-main` (חסימת מחיקה ו-force push) | ✅ |
 | GitHub: Secret scanning + Push protection | ✅ |
