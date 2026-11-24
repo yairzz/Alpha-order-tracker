@@ -131,6 +131,9 @@
       'אומתה ונסגרה'
     ];
 
+    // Setting this status on an active order moves it to the archive automatically.
+    const CLOSED_STATUS = 'אומתה ונסגרה';
+
     const STATUS_COLORS = {
       'ראשוני': 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
       'נשלחה לשגיא': 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100',
@@ -939,6 +942,8 @@
       const [quoteError, setQuoteError] = useState('');
       const [isSaving, setIsSaving] = useState(false);
       const [isExporting, setIsExporting] = useState(false);
+      const [notice, setNotice] = useState(null); // { text, undo }
+      const noticeTimer = React.useRef(null);
       
       const [notesModalOrder, setNotesModalOrder] = useState(null);
       const [currentNotes, setCurrentNotes] = useState('');
@@ -1079,8 +1084,9 @@
       const stats = useMemo(() => {
         const active = orders.filter(o => !o.isArchived);
         const archived = orders.filter(o => o.isArchived);
-        const completed = active.filter(o => o.status === 'אומתה ונסגרה').length;
-        const pending = active.length - completed;
+        // Closed orders now go to the archive, so "אומתו ונסגרו" counts them everywhere (active + archive).
+        const completed = orders.filter(o => o.status === CLOSED_STATUS).length;
+        const pending = active.filter(o => o.status !== CLOSED_STATUS).length;
         return { totalActive: active.length, pending, completed, archivedCount: archived.length };
       }, [orders]);
 
@@ -1191,6 +1197,10 @@
           date: editingOrder ? editingOrder.date : new Date().toISOString(),
           createdAt: editingOrder ? (editingOrder.createdAt || Date.now()) : Date.now()
         };
+        // Saved as "closed" while active (new order, or an edit that changed the status) → straight to the archive.
+        const autoArchive = payload.status === CLOSED_STATUS && !payload.isArchived
+          && (!editingOrder || editingOrder.status !== CLOSED_STATUS);
+        if (autoArchive) payload.isArchived = true;
 
         setIsSaving(true);
         try {
@@ -1219,6 +1229,10 @@
             const fullPayload = { ...payload, quoteFiles: meta };
             if (editingOrder) batch.update(orderRef, fullPayload); else batch.set(orderRef, fullPayload);
             await batch.commit();
+            if (autoArchive) {
+              notifyAutoArchived({ id: orderRef.id, itemName: payload.itemName },
+                { status: editingOrder ? editingOrder.status : STATUS_OPTIONS[0], isArchived: false });
+            }
           } else {
             // Local mode: the file content stays inline in the order (localStorage).
             const meta = [];
@@ -1228,11 +1242,15 @@
                 : q);
             }
             const fullPayload = { ...payload, quoteFiles: meta };
+            const localId = editingOrder ? editingOrder.id : 'ord-' + Date.now();
             if (editingOrder) {
               setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...fullPayload } : o));
             } else {
-              const newOrder = { id: 'ord-' + Date.now(), ...fullPayload };
-              setOrders(prev => [newOrder, ...prev]);
+              setOrders(prev => [{ id: localId, ...fullPayload }, ...prev]);
+            }
+            if (autoArchive) {
+              notifyAutoArchived({ id: localId, itemName: payload.itemName },
+                { status: editingOrder ? editingOrder.status : STATUS_OPTIONS[0], isArchived: false });
             }
           }
           setIsModalOpen(false);
@@ -1246,12 +1264,48 @@
         }
       };
 
-      const handleStatusChange = async (orderId, newStatus) => {
+      const updateOrderFields = async (orderId, changes) => {
         if (isCloudActive && dbInstance) {
-          await dbInstance.collection('orders').doc(orderId).update({ status: newStatus });
+          await dbInstance.collection('orders').doc(orderId).update(changes);
         } else {
-          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...changes } : o));
         }
+      };
+
+      // Short message at the bottom of the screen, optionally with an "undo" button. Hides after 8 s.
+      const showNotice = (text, undo = null) => {
+        if (noticeTimer.current) clearTimeout(noticeTimer.current);
+        setNotice({ text, undo });
+        noticeTimer.current = setTimeout(() => setNotice(null), 8000);
+      };
+
+      const notifyAutoArchived = (order, previous) => {
+        const label = order.itemName || 'ללא שם';
+        showNotice(`"${label}" סומנה "${CLOSED_STATUS}" והועברה לארכיון.`, async () => {
+          try {
+            await updateOrderFields(order.id, previous);
+          } catch (err) {
+            console.error('Undo failed:', err);
+            alert('הביטול נכשל. אפשר לשחזר את ההזמנה ידנית מהארכיון.');
+          }
+        });
+      };
+
+      const handleStatusChange = async (orderId, newStatus) => {
+        const order = orders.find(o => o.id === orderId);
+        // Closing an active order moves it straight to the archive.
+        if (newStatus === CLOSED_STATUS && order && !order.isArchived) {
+          try {
+            await updateOrderFields(orderId, { status: newStatus, isArchived: true });
+            setSelectedIds(prev => prev.filter(id => id !== orderId));
+            notifyAutoArchived(order, { status: order.status, isArchived: false });
+          } catch (err) {
+            console.error('Status change failed:', err);
+            alert('עדכון הסטטוס נכשל. בדוק את החיבור ונסה שוב.');
+          }
+          return;
+        }
+        await updateOrderFields(orderId, { status: newStatus });
       };
 
       const toggleArchive = async (orderId, currentArchivedState) => {
@@ -1928,6 +1982,19 @@
                   </div>
                 </form>
               </div>
+            </div>
+          )}
+
+          {/* Notice (e.g. "moved to archive") with optional undo */}
+          {notice && (
+            <div role="status" className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-[60] bg-slate-900 text-white text-sm rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3 sm:max-w-xl">
+              <span className="flex-1">{notice.text}</span>
+              {notice.undo && (
+                <button type="button"
+                  onClick={() => { const u = notice.undo; setNotice(null); u(); }}
+                  className="font-bold text-amber-300 hover:text-amber-200 shrink-0">בטל</button>
+              )}
+              <button type="button" onClick={() => setNotice(null)} className="text-slate-400 hover:text-white shrink-0" title="סגור"><IconX /></button>
             </div>
           )}
 
