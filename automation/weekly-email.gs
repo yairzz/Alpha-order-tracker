@@ -78,7 +78,7 @@ function manualCheck() {
       writeLastRun_({ result: 'manual-expired' });
       return;
     }
-    runSend_('manual');
+    runSend_('manual', req);
   });
 }
 
@@ -88,13 +88,19 @@ function manualCheck() {
  * The email holds every non-archived item in SOURCE_STATUS (new) or TARGET_STATUS (sent before and
  * not yet moved on by the recipient); only the new ones change status.
  */
-function runSend_(mode) {
+function runSend_(mode, req) {
   const manual = mode === 'manual';
   try {
     const settings = loadSettings_();
     if (!manual && !settings.enabled) {
       writeLastRun_({ result: 'disabled' });
       return;
+    }
+    // Manual send: the recipients the admin saw and confirmed are stored in the request itself,
+    // so a settings change made while the request waits cannot redirect the email.
+    if (manual && req && typeof req.to === 'string') {
+      settings.recipientEmail = req.to;
+      settings.ccEmail = typeof req.cc === 'string' ? req.cc : '';
     }
     const to = cleanEmails_(settings.recipientEmail);
     if (!to) {
