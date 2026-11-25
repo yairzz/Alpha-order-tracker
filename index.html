@@ -728,21 +728,41 @@
       disabled: 'לא נשלח – האוטומציה כבויה',
       'no-recipient': 'לא נשלח – לא הוגדר נמען',
       test: 'שליחת בדיקה',
+      'manual-sent': 'נשלח ידנית ("שלח עכשיו")',
+      'manual-expired': 'בקשת "שלח עכשיו" פגה (הסקריפט לא טיפל בה תוך 30 דקות)',
+      'nothing-to-send': 'לא נשלח – אין פריטים לשליחה',
       error: 'שגיאה'
     };
 
-    function AutomationSettingsModal({ adminUid, onClose }) {
+    // Statuses the email includes: new items, and items sent before that the recipient has not moved on.
+    const EMAIL_NEW_STATUS = 'ראשוני';
+    const EMAIL_RESEND_STATUS = 'נשלחה לשגיא';
+    const MANUAL_MAX_AGE_MS = 30 * 60 * 1000; // same as the script
+
+    function AutomationSettingsModal({ adminUid, orders, onClose }) {
       const [form, setForm] = useState(null);
       const [lastRun, setLastRun] = useState(null);
+      const [manualRequest, setManualRequest] = useState(null);
+      const [saved, setSaved] = useState(null); // settings as stored in Firestore – what the script will use
       const [busy, setBusy] = useState(false);
+      const [sending, setSending] = useState(false);
       const [message, setMessage] = useState(null);
+
+      // Live: last run + pending manual request (the script updates them while the window is open).
+      useEffect(() => {
+        return firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]).onSnapshot(snap => {
+          const data = snap.exists ? snap.data() : {};
+          setLastRun(data.lastRun || null);
+          setManualRequest(data.manualRequest || null);
+        }, err => console.error('Automation status failed:', err));
+      }, []);
 
       useEffect(() => {
         const ref = firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]);
         ref.get().then(snap => {
           const data = snap.exists ? snap.data() : {};
           setForm({ ...AUTOMATION_DEFAULTS, ...data });
-          setLastRun(data.lastRun || null);
+          setSaved(snap.exists ? { ...AUTOMATION_DEFAULTS, ...data } : null);
         }).catch(err => {
           console.error('Automation settings load failed:', err);
           setForm({ ...AUTOMATION_DEFAULTS });
@@ -784,7 +804,7 @@
 
         setBusy(true);
         try {
-          await firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]).set({
+          const toSave = {
             enabled: Boolean(form.enabled),
             recipientEmail: splitEmails(form.recipientEmail).join(', '),
             ccEmail: splitEmails(form.ccEmail).join(', '),
@@ -792,10 +812,15 @@
             relayEmail: splitEmails(form.relayEmail).join(''),
             minItems,
             subject: form.subject.trim(),
-            body: form.body,
+            body: form.body
+          };
+          await firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1]).set({
+            ...toSave,
             updatedAt: Date.now(),
             updatedBy: adminUid
           }, { merge: true });
+          setForm(prev => ({ ...prev, ...toSave }));
+          setSaved(prev => ({ ...(prev || AUTOMATION_DEFAULTS), ...toSave }));
           setMessage({ type: 'ok', text: 'ההגדרות נשמרו.' });
         } catch (err) {
           console.error('Automation settings save failed:', err);
@@ -804,6 +829,46 @@
             : 'השמירה נכשלה.' });
         }
         setBusy(false);
+      };
+
+      const active = (orders || []).filter(o => !o.isArchived);
+      const newCount = active.filter(o => o.status === EMAIL_NEW_STATUS).length;
+      const resendCount = active.filter(o => o.status === EMAIL_RESEND_STATUS).length;
+      const manualPending = Boolean(manualRequest && manualRequest.at && !manualRequest.handledAt
+        && Date.now() - manualRequest.at < MANUAL_MAX_AGE_MS);
+
+      // The script sends with the SAVED settings, so unsaved edits must never be shown as if they apply.
+      const SEND_FIELDS = ['recipientEmail', 'ccEmail', 'replyTo', 'relayEmail', 'subject', 'body'];
+      const hasUnsavedChanges = !saved || SEND_FIELDS.some(k => String(form[k] ?? '').trim() !== String(saved[k] ?? '').trim());
+
+      const handleSendNow = async () => {
+        setMessage(null);
+        if (hasUnsavedChanges) {
+          return setMessage({ type: 'error', text: 'יש שינויים שלא נשמרו. לחץ "שמור הגדרות" לפני "שלח עכשיו" – המייל יוצא לפי ההגדרות השמורות.' });
+        }
+        const savedTo = splitEmails(saved.recipientEmail).join(', ');
+        const savedCc = splitEmails(saved.ccEmail).join(', ');
+        if (!savedTo) return setMessage({ type: 'error', text: 'כדי לשלוח יש להזין נמען ולשמור את ההגדרות.' });
+        if (newCount + resendCount === 0) return setMessage({ type: 'error', text: 'אין כרגע פריטים לשליחה.' });
+        if (!window.confirm(
+          `לשלוח עכשיו מייל אל ${savedTo}${savedCc ? ` (העתק: ${savedCc})` : ''} עם ${newCount + resendCount} פריטים?\n\n` +
+          `• ${newCount} חדשים (בסטטוס "${EMAIL_NEW_STATUS}") – יעברו ל"${EMAIL_RESEND_STATUS}"\n` +
+          `• ${resendCount} שכבר נשלחו בעבר (בסטטוס "${EMAIL_RESEND_STATUS}")\n\n` +
+          'המייל יוצא לפי ההגדרות השמורות, גם אם האוטומציה כבויה ובלי קשר לסף.'
+        )) return;
+        setSending(true);
+        try {
+          // update() replaces the whole map, so an old handledAt never survives.
+          await firebase.firestore().collection(AUTOMATION_DOC[0]).doc(AUTOMATION_DOC[1])
+            .update({ manualRequest: { at: Date.now(), by: adminUid } });
+          setMessage({ type: 'ok', text: 'הבקשה נשלחה. המייל ייצא תוך כדקה, והתוצאה תופיע ב"ריצה אחרונה".' });
+        } catch (err) {
+          console.error('Manual send request failed:', err);
+          setMessage({ type: 'error', text: err.code === 'not-found'
+            ? 'יש לשמור את ההגדרות לפחות פעם אחת לפני שליחה ידנית.'
+            : 'שליחת הבקשה נכשלה. בדוק את החיבור ונסה שוב.' });
+        }
+        setSending(false);
       };
 
       const labelCls = 'block text-xs font-bold text-slate-700 mb-1';
@@ -819,12 +884,30 @@
 
             <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
               <p className="text-sm text-slate-600">
-                בכל יום ראשון ורביעי בסביבות 08:00 המערכת בודקת כמה פריטים (שאינם בארכיון) נמצאים בסטטוס "ראשוני".
-                אם יש לפחות מספר הפריטים שבסף, נשלח מייל עם קובץ אקסל (אותן 5 עמודות כמו בייצוא), והפריטים עוברים לסטטוס "נשלחה לשגיא".
+                בכל יום ראשון ורביעי בסביבות 08:00 המערכת בודקת כמה פריטים חדשים (בסטטוס "ראשוני", לא בארכיון) יש.
+                אם יש לפחות מספר הפריטים שבסף, נשלח מייל עם קובץ אקסל (אותן 5 עמודות כמו בייצוא) והצעות המחיר.
+                המייל כולל גם את הפריטים בסטטוס "נשלחה לשגיא" – הם נשלחים שוב בכל פעם, עד שהנמען משנה להם את הסטטוס.
+                הפריטים החדשים עוברים ל"נשלחה לשגיא".
               </p>
 
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex-1 text-sm text-slate-700">
+                  <div className="font-bold text-slate-800">שליחה ידנית</div>
+                  כרגע יישלחו {newCount + resendCount} פריטים: {newCount} חדשים ו-{resendCount} שנשלחו בעבר.
+                  {saved && splitEmails(saved.recipientEmail).length > 0 && (
+                    <div className="text-xs text-slate-500 mt-0.5" dir="auto">נמען שמור: {splitEmails(saved.recipientEmail).join(', ')}</div>
+                  )}
+                  {hasUnsavedChanges && <div className="text-amber-700 font-semibold mt-1">יש שינויים שלא נשמרו – שמור לפני שליחה.</div>}
+                  {manualPending && <div className="text-emerald-800 font-semibold mt-1">⏳ ממתין לשליחה – המייל ייצא תוך כדקה.</div>}
+                </div>
+                <button type="button" onClick={handleSendNow} disabled={sending || manualPending || hasUnsavedChanges}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-4 py-2 rounded-xl font-bold text-sm shrink-0">
+                  {sending ? 'שולח בקשה...' : manualPending ? 'ממתין...' : 'שלח עכשיו'}
+                </button>
+              </div>
+
               <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                <input type="checkbox" checked={Boolean(form.enabled)} onChange={set('enabled')} className="w-4 h-4" />
+                <input type="checkbox" checked={Boolean(form.enabled)} onChange={set('enabled')} className="w-4 h-4" />{' '}
                 האוטומציה פעילה
               </label>
 
@@ -882,6 +965,7 @@
                 <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                   ריצה אחרונה: {lastRun.at ? new Date(lastRun.at).toLocaleString('he-IL') : '—'} · {LAST_RUN_LABELS[lastRun.result] || lastRun.result}
                   {typeof lastRun.itemCount === 'number' ? ` · ${lastRun.itemCount} פריטים` : ''}
+                  {typeof lastRun.newCount === 'number' ? ` (${lastRun.newCount} חדשים)` : ''}
                   {lastRun.message ? ` · ${lastRun.message}` : ''}
                 </div>
               )}
@@ -2087,7 +2171,7 @@
           )}
 
           {showAutomation && isAdmin && (
-            <AutomationSettingsModal adminUid={currentUser.uid} onClose={() => setShowAutomation(false)} />
+            <AutomationSettingsModal adminUid={currentUser.uid} orders={orders} onClose={() => setShowAutomation(false)} />
           )}
 
           {showChangePw && (

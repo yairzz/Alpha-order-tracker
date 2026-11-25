@@ -3,11 +3,15 @@
  *
  * Every Sunday and Wednesday ~08:00 (Asia/Jerusalem):
  *   1. Reads the settings from Firestore: settings/automation (edited on the site, admin only).
- *   2. Counts non-archived orders whose status is "ראשוני".
- *   3. If the count >= minItems: emails an Excel file (same 5 columns as the site export)
- *      plus the quote files (הצעות מחיר) attached to those orders,
- *      and moves those orders to status "נשלחה לשגיא".
+ *   2. Loads non-archived orders in status "ראשוני" (new) or "נשלחה לשגיא" (sent before, not yet
+ *      moved on by the recipient – they are sent again every time until he changes the status).
+ *   3. If there are at least minItems NEW items: emails an Excel file (same 5 columns as the site
+ *      export) with all of those items plus their quote files (הצעות מחיר), and moves the new
+ *      ones to "נשלחה לשגיא".
  *   4. Writes the result to settings/automation.lastRun (shown on the site).
+ *
+ * Manual send: the admin's "שלח עכשיו" button on the site writes settings/automation.manualRequest;
+ * manualCheck() (every minute) sends the same email now, ignoring the on/off switch and the threshold.
  *
  * Runs as the Google account that owns the Firebase project, so no keys or passwords
  * are needed or stored here. This file contains no secrets and is safe in a public repo.
@@ -22,16 +26,18 @@
  * Functions to run by hand from the Apps Script editor:
  *   - createRelayToken()      – creates the secret code for the Outlook relay (run once).
  *   - testSendToMe()          – sends the current list to YOU only (via the relay if set), changes nothing.
- *   - installWeeklyTrigger()  – turns on the schedule, Sunday + Wednesday (run once; re-running replaces it).
- *   - removeWeeklyTrigger()   – turns off the weekly schedule.
+ *   - installWeeklyTrigger()  – turns on the schedule (Sunday + Wednesday) and the every-minute
+ *                               manual-send check (run once; re-running replaces them).
+ *   - removeWeeklyTrigger()   – turns off both.
  */
 
 const PROJECT_ID = 'alpha-order-tracker';
 const FIRESTORE_BASE = 'https://firestore.googleapis.com/v1/projects/' + PROJECT_ID + '/databases/(default)/documents';
 const TIMEZONE = 'Asia/Jerusalem';
 
-const SOURCE_STATUS = 'ראשוני';
-const TARGET_STATUS = 'נשלחה לשגיא';
+const SOURCE_STATUS = 'ראשוני';      // new items: counted for the threshold, moved to TARGET_STATUS after sending
+const TARGET_STATUS = 'נשלחה לשגיא'; // sent before: included again until the recipient moves them on
+const MANUAL_MAX_AGE_MS = 30 * 60 * 1000;
 const SENDER_NAME = 'מערכת מעקב הזמנות';
 // Relay mode: the email text sits between these markers; Power Automate keeps only what is between them.
 const BODY_START = '[[AOT-START]]';
@@ -50,13 +56,43 @@ const DEFAULTS = {
 
 // ===================== Entry points =====================
 
-/** Called by the weekly trigger. */
+/** Called by the weekly trigger (Sunday + Wednesday). */
 function weeklyCheck() {
-  let settings = DEFAULTS;
-  try {
-    settings = loadSettings_();
+  withLock_(30000, function () { runSend_('weekly'); });
+}
 
-    if (!settings.enabled) {
+/**
+ * Called every minute by a trigger. Sends now if the admin pressed "שלח עכשיו" on the site
+ * (settings/automation.manualRequest = {at, by}, without handledAt). The request is marked as
+ * handled BEFORE sending, so it can never be sent twice. Requests older than 30 minutes
+ * (e.g. the trigger was off) are not sent.
+ */
+function manualCheck() {
+  withLock_(1000, function () {
+    const doc = firestoreFetch_('/settings/automation', 'get');
+    const req = doc ? fromFields_(doc.fields || {}).manualRequest : null;
+    if (!req || !req.at || req.handledAt) return;
+
+    markManualHandled_();
+    if (Date.now() - Number(req.at) > MANUAL_MAX_AGE_MS) {
+      writeLastRun_({ result: 'manual-expired' });
+      return;
+    }
+    runSend_('manual');
+  });
+}
+
+/**
+ * The send itself. mode 'weekly': only when enabled and when there are at least minItems NEW items.
+ * mode 'manual': ignores the on/off switch and the threshold.
+ * The email holds every non-archived item in SOURCE_STATUS (new) or TARGET_STATUS (sent before and
+ * not yet moved on by the recipient); only the new ones change status.
+ */
+function runSend_(mode) {
+  const manual = mode === 'manual';
+  try {
+    const settings = loadSettings_();
+    if (!manual && !settings.enabled) {
       writeLastRun_({ result: 'disabled' });
       return;
     }
@@ -67,19 +103,25 @@ function weeklyCheck() {
     }
 
     const items = loadPendingItems_();
+    const newItems = items.filter(function (o) { return o.status === SOURCE_STATUS; });
     const minItems = Math.max(1, parseInt(settings.minItems, 10) || DEFAULTS.minItems);
-    if (items.length < minItems) {
-      writeLastRun_({ result: 'below-threshold', itemCount: items.length });
+    if (!manual && newItems.length < minItems) {
+      writeLastRun_({ result: 'below-threshold', itemCount: items.length, newCount: newItems.length });
+      return;
+    }
+    if (items.length === 0) {
+      writeLastRun_({ result: 'nothing-to-send', itemCount: 0, newCount: 0 });
       return;
     }
 
     sendReport_(settings, items, { to: to, cc: cleanEmails_(settings.ccEmail), test: false });
 
+    const result = manual ? 'manual-sent' : 'sent';
     try {
-      updateStatuses_(items, TARGET_STATUS);
-      writeLastRun_({ result: 'sent', itemCount: items.length });
+      updateStatuses_(newItems, TARGET_STATUS);
+      writeLastRun_({ result: result, itemCount: items.length, newCount: newItems.length });
     } catch (e) {
-      writeLastRun_({ result: 'sent', itemCount: items.length,
+      writeLastRun_({ result: result, itemCount: items.length, newCount: newItems.length,
         message: 'המייל נשלח, אך עדכון הסטטוסים נכשל: ' + e.message });
       throw e;
     }
@@ -87,6 +129,25 @@ function weeklyCheck() {
     try { writeLastRun_({ result: 'error', message: String(e.message || e).slice(0, 300) }); } catch (ignored) {}
     throw e; // Google emails the script owner about failed trigger runs.
   }
+}
+
+/** Weekly and manual runs never overlap. */
+function withLock_(waitMs, fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(waitMs)) return;
+  try { fn(); } finally { lock.releaseLock(); }
+}
+
+function markManualHandled_() {
+  firestoreFetch_(':commit', 'post', {
+    writes: [{
+      update: {
+        name: 'projects/' + PROJECT_ID + '/databases/(default)/documents/settings/automation',
+        fields: { manualRequest: { mapValue: { fields: { handledAt: { integerValue: String(Date.now()) } } } } }
+      },
+      updateMask: { fieldPaths: ['manualRequest.handledAt'] }
+    }]
+  });
 }
 
 /**
@@ -119,7 +180,10 @@ function createRelayToken() {
 /** Days the check runs (08:00–09:00 Israel time). */
 const RUN_DAYS = [ScriptApp.WeekDay.SUNDAY, ScriptApp.WeekDay.WEDNESDAY];
 
-/** Run once to turn on the schedule (Sunday and Wednesday, 08:00–09:00 Israel time). */
+/**
+ * Run once to turn on the schedule: Sunday and Wednesday 08:00–09:00 Israel time,
+ * plus a check every minute for the site's "שלח עכשיו" button. Re-running replaces them.
+ */
 function installWeeklyTrigger() {
   removeWeeklyTrigger();
   RUN_DAYS.forEach(function (day) {
@@ -130,13 +194,14 @@ function installWeeklyTrigger() {
       .inTimezone(TIMEZONE)
       .create();
   });
-  Logger.log('Triggers installed: %s at 08:00 %s.', RUN_DAYS.join(', '), TIMEZONE);
+  ScriptApp.newTrigger('manualCheck').timeBased().everyMinutes(1).create();
+  Logger.log('Triggers installed: %s at 08:00 %s, and the manual-send check every minute.', RUN_DAYS.join(', '), TIMEZONE);
 }
 
-/** Turns off the weekly schedule. */
+/** Turns off the weekly schedule and the manual-send check. */
 function removeWeeklyTrigger() {
   ScriptApp.getProjectTriggers()
-    .filter(function (t) { return t.getHandlerFunction() === 'weeklyCheck'; })
+    .filter(function (t) { return ['weeklyCheck', 'manualCheck'].indexOf(t.getHandlerFunction()) !== -1; })
     .forEach(function (t) { ScriptApp.deleteTrigger(t); });
 }
 
@@ -180,8 +245,8 @@ function loadPendingItems_() {
       where: {
         fieldFilter: {
           field: { fieldPath: 'status' },
-          op: 'EQUAL',
-          value: { stringValue: SOURCE_STATUS }
+          op: 'IN',
+          value: { arrayValue: { values: [{ stringValue: SOURCE_STATUS }, { stringValue: TARGET_STATUS }] } }
         }
       }
     }
@@ -217,6 +282,7 @@ function writeLastRun_(info) {
     result: { stringValue: info.result }
   };
   if (typeof info.itemCount === 'number') fields.itemCount = { integerValue: String(info.itemCount) };
+  if (typeof info.newCount === 'number') fields.newCount = { integerValue: String(info.newCount) };
   if (info.message) fields.message = { stringValue: info.message };
 
   firestoreFetch_(':commit', 'post', {
